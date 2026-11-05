@@ -11,7 +11,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d3b27'/%3E%3Crect x='16' y='18' width='32' height='22' rx='5' fill='%233ddc84'/%3E%3Crect x='20' y='24' width='8' height='7' fill='%23a9d0ea'/%3E%3Crect x='32' y='24' width='8' height='7' fill='%23a9d0ea'/%3E%3Ccircle cx='23' cy='46' r='4' fill='%23ffd24a'/%3E%3Ccircle cx='41' cy='46' r='4' fill='%23ffd24a'/%3E%3C/svg%3E"
     />
-    <title>京沪神车 1462 · 基础示例</title>
+    <title>京沪神车 1462 · 京沪线</title>
   </head>
   <body>
     <div id="app">
@@ -19,33 +19,56 @@
       <div id="hud">
         <header class="topbar">
           <div class="brand">
-            <span class="badge">V0</span>
+            <span class="badge">京沪线</span>
             <span class="train-no">1462</span>
             <span class="route">上海 → 北京</span>
           </div>
-          <div class="timer"><span id="timer">0:00.0</span></div>
+          <div class="top-right">
+            <button id="help" class="icon-button" type="button" aria-label="玩法说明">?</button>
+            <div class="pax-chip">乘客 <b id="pax">240</b></div>
+            <div class="timer"><span id="timer">0:00.0</span></div>
+          </div>
         </header>
 
         <div class="center-hint" id="start-hint">
           <div class="hint-main">按住加速</div>
           <div class="hint-sub">空格 / ↑ / W / 屏幕 · 松开刹车</div>
-          <div class="hint-extra">V0 最小示例 · 4,000 m 直线</div>
+          <div class="hint-extra">上海 → 北京 · 1,463 km · 曲线超速会脱线</div>
         </div>
+
+        <div id="station-popup" class="station-popup" aria-live="polite">
+          <div class="popup-kicker">1462 停靠</div>
+          <div class="popup-name" id="popup-name">上海</div>
+          <div class="popup-meta" id="popup-meta">上车 +42 · 下车 −34</div>
+          <div class="popup-remain" id="popup-remain">剩余 21 站</div>
+        </div>
+        <div id="pass-toast" class="pass-toast" aria-live="polite">通过 · 戚墅堰</div>
+
+        <aside class="route-map" aria-label="京沪线路线图">
+          <div class="map-head">
+            <span>京沪线</span>
+            <b>1462</b>
+          </div>
+          <canvas id="map-canvas"></canvas>
+        </aside>
 
         <footer class="bottombar">
           <div class="progress">
             <div class="progress-labels">
-              <span id="distance">0 / 4,000 m</span>
-              <span>终点 4,000 m</span>
+              <span id="distance">已跑 0 / 1,463 km</span>
+              <span id="status">下一站 上海西（通过） · 剩余 22 站</span>
             </div>
             <div class="progress-rail"><div id="progress-fill"></div></div>
           </div>
           <div class="dash">
             <div class="speed">
-              <div class="speed-value">
-                <span id="speed">0</span><span class="speed-unit">km/h</span>
+              <canvas id="speedo" class="speedo" width="136" height="136"></canvas>
+              <div class="speed-readout">
+                <div class="speed-value">
+                  <span id="speed">0</span><span class="speed-unit">km/h</span>
+                </div>
+                <div class="speed-label">等效时速 · 1463 km 尺度</div>
               </div>
-              <div class="speed-label">等效时速 · 1463 km 尺度</div>
             </div>
             <div class="dash-note">
               <span class="dot"></span>
@@ -54,15 +77,52 @@
           </div>
         </footer>
 
+        <div id="help-overlay" class="help-overlay hidden" role="dialog" aria-modal="true">
+          <div class="help-card">
+            <div class="help-kicker">京沪神车 1462</div>
+            <h2>玩法说明</h2>
+            <ul>
+              <li>按住 <b>空格 / ↑ / W / 屏幕</b> 加速，松开即制动；到北京站中心停表。</li>
+              <li>乘客在站台与车门间跳乘；人数越多，列车越重，加速与制动越慢。</li>
+              <li>弯道超速会向外倾覆脱线，0.9 秒后原地复位，计时不停。</li>
+              <li>全线 66 个三等以上车站：22 个停靠、44 个通过；剩余站数只数停靠站。</li>
+              <li>1462 在济南不进京沪正线，经济南线拐进济南站，再走泺口黄河老桥回正线。</li>
+            </ul>
+            <div class="help-sound">
+              <span>音效</span>
+              <button id="mute" type="button" class="sound-toggle">开启</button>
+            </div>
+            <div class="help-sources">
+              线路走向参考 OpenRailwayMap / © OpenStreetMap contributors (ODbL)。<br />
+              游戏化压缩：1 游戏米 ≈ 100 真实米，1463 km 对应 14,630 游戏米。
+            </div>
+            <div class="help-actions">
+              <button id="help-close" type="button">继续跑</button>
+              <button id="help-restart" type="button" class="ghost">重新开始</button>
+            </div>
+          </div>
+        </div>
+
         <div id="result" class="result hidden" role="dialog" aria-modal="true">
           <div class="result-card">
-            <div class="result-kicker">V0 基础示例 · 抵达终点</div>
-            <h1>4,000 m 完成</h1>
+            <div class="result-kicker">京沪线 · 1462</div>
+            <h1>抵达北京站</h1>
             <div class="result-time" id="result-time">0:00.0</div>
+            <div class="result-new hidden" id="result-new">新纪录</div>
+            <div class="result-row">
+              <span>历史最快</span><strong id="result-best">—</strong>
+            </div>
             <div class="result-row">
               <span>最高等效时速</span><strong id="result-max">0 km/h</strong>
             </div>
-            <button id="retry" type="button">再跑一次</button>
+            <div class="result-row">
+              <span>全程</span><strong>1,463 km</strong>
+            </div>
+            <div class="result-egg" id="result-egg"></div>
+            <div class="result-actions">
+              <button id="retry" type="button">再跑一次</button>
+              <button id="share" type="button" class="ghost">分享成绩</button>
+            </div>
             <div class="result-foot">速度表按真实 1463 km 尺度等效显示</div>
           </div>
         </div>

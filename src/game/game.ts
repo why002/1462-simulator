@@ -1,6 +1,26 @@
 import * as THREE from 'three';
+import { createAudio } from './audio';
 import { GAME } from './config';
+import { createEffects } from './effects';
+import { createPassengerFx } from './exchange';
+import {
+  createRouteMap,
+  createSpeedometer,
+  loadBest,
+  saveBest,
+  shareText,
+} from './hud';
+import type { PathData, PathSample, StationOnRoute } from './types';
 import type { Train } from './train';
+
+export type DebugView =
+  | 'follow'
+  | 'jinan'
+  | 'yangtze'
+  | 'luokou'
+  | 'train'
+  | 'station'
+  | 'door';
 
 export interface Game {
   update(dt: number): void;
@@ -8,36 +28,107 @@ export interface Game {
 
 export interface GameDebug {
   readonly pathLength: number;
+  readonly path: PathData;
+  readonly stations: StationOnRoute[];
+  readonly riverCrossings: PathData['riverCrossings'];
+  readonly mainlineBypass: PathData['mainlineBypass'];
+  readonly routeSummary: { minRadius: number; jinanBypassMinDistance: number };
   readonly s: number;
   readonly v: number;
   readonly time: number;
   readonly finished: boolean;
+  readonly pax: number;
+  readonly massFactor: number;
+  readonly derailing: boolean;
+  readonly tilt: number;
+  readonly derails: number;
+  readonly lateralAccel: number;
+  readonly visitedStops: number;
+  readonly passedStations: number;
+  readonly popupVisible: boolean;
+  readonly jumpers: number;
+  readonly bestTime: number | null;
+  readonly helpVisible: boolean;
+  readonly muted: boolean;
+  readonly audioRunning: boolean;
+  readonly sparkCount: number;
+  readonly windOpacity: number;
   displaySpeed(speed: number): number;
-  teleport(value: number): void;
+  realKmAt(s: number): number;
+  pathAt(s: number): PathSample;
+  nearestS(x: number, z: number): number;
+  teleport(s: number): void;
+  teleportToStation(name: string): void;
+  teleportToRiver(name: string): void;
+  setView(view: DebugView): void;
   setSpeed(speed: number): void;
+  setPax(value: number): void;
+  forceDerail(): void;
   reset(): void;
 }
 
-const FINISH_LABEL = GAME.finishS.toLocaleString('en-US');
-
-export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game {
+export function createGame(
+  scene: THREE.Scene,
+  camera: THREE.PerspectiveCamera,
+  train: Train,
+  path: PathData,
+  stations: StationOnRoute[],
+): Game {
   const timerElement = getElement('timer');
   const speedElement = getElement('speed');
   const distanceElement = getElement('distance');
+  const statusElement = getElement('status');
   const progressElement = getElement('progress-fill');
   const startHint = getElement('start-hint');
   const resultElement = getElement('result');
   const resultTimeElement = getElement('result-time');
   const resultMaxElement = getElement('result-max');
   const retryButton = getElement<HTMLButtonElement>('retry');
+  const paxElement = getElement('pax');
+  const stationPopup = getElement('station-popup');
+  const popupName = getElement('popup-name');
+  const popupMeta = getElement('popup-meta');
+  const popupRemain = getElement('popup-remain');
+  const passToast = getElement('pass-toast');
+  const resultBestElement = getElement('result-best');
+  const resultNewElement = getElement('result-new');
+  const resultEggElement = getElement('result-egg');
+  const shareButton = getElement<HTMLButtonElement>('share');
+  const helpButton = getElement<HTMLButtonElement>('help');
+  const helpOverlay = getElement('help-overlay');
+  const helpCloseButton = getElement<HTMLButtonElement>('help-close');
+  const helpRestartButton = getElement<HTMLButtonElement>('help-restart');
+  const muteButton = getElement<HTMLButtonElement>('mute');
+  const passengerFx = createPassengerFx(scene, path);
+  const effects = createEffects(scene, path);
+  const audio = createAudio();
+  updateMuteLabel(audio.muted);
+  const routeMap = createRouteMap(getElement<HTMLCanvasElement>('map-canvas'), path, stations);
+  const speedometer = createSpeedometer(getElement<HTMLCanvasElement>('speedo'));
+  let lastFinishTime = 0;
+  let lastFinishMax = 0;
+  let shareResetTimer = 0;
 
-  let s: number = GAME.startS;
+  let s: number = path.coreStart;
   let v = 0;
   let time = 0;
   let started = false;
   let finished = false;
   let pressing = false;
   let maxV = 0;
+  let pax: number = GAME.paxStart;
+  let derailing = false;
+  let derailTimer = 0;
+  let derailDirection = 1;
+  let overSpeedTime = 0;
+  let tilt = 0;
+  let derails = 0;
+  let debugView: DebugView | null = null;
+  const visitedStops = new Set<string>();
+  const passedStations = new Set<string>();
+  let lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
+  let popupTimer = 0;
+  let passTimer = 0;
 
   const desiredPosition = new THREE.Vector3();
   const desiredTarget = new THREE.Vector3();
@@ -59,9 +150,122 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
     return `${minutes}:${String(seconds).padStart(2, '0')}.${tenths}`;
   }
 
+  function updateMuteLabel(muted: boolean): void {
+    muteButton.textContent = muted ? '关闭' : '开启';
+    muteButton.classList.toggle('off', muted);
+  }
+
+  function realKmAt(value: number): number {
+    return clamp((value - path.coreStart) / GAME.metersPerKm, 0, GAME.realKm);
+  }
+
+  function massFactor(): number {
+    return 1 + pax * GAME.paxWeight;
+  }
+
+  function lateralAccel(): number {
+    const sample = path.sampleAt(s);
+    return v * v * Math.abs(sample.curvature);
+  }
+
+  function triggerDerail(): void {
+    if (finished || derailing) {
+      return;
+    }
+    const sample = path.sampleAt(s);
+    derailing = true;
+    derailTimer = 0;
+    derailDirection = sample.curvature < 0 ? -1 : 1;
+    overSpeedTime = 0;
+    v = 0;
+    pressing = false;
+    derails += 1;
+    audio.crash();
+    startHint.classList.add('hidden');
+  }
+
+  function showStationPopup(
+    station: StationOnRoute,
+    boarded: number,
+    alighted: number,
+  ): void {
+    popupName.textContent = station.name;
+    popupMeta.textContent = `上车 +${boarded} · 下车 −${alighted}`;
+    const remaining = stations.filter(
+      (item) => item.stop && item.s > station.s,
+    ).length;
+    popupRemain.textContent = `剩余 ${remaining} 站`;
+    if (station.name !== '北京') {
+      audio.chime();
+    }
+    stationPopup.classList.add('show');
+    window.clearTimeout(popupTimer);
+    popupTimer = window.setTimeout(() => {
+      stationPopup.classList.remove('show');
+    }, 1800);
+  }
+
+  function showPassToast(name: string): void {
+    passToast.textContent = `通过 · ${name}`;
+    passToast.classList.add('show');
+    window.clearTimeout(passTimer);
+    passTimer = window.setTimeout(() => {
+      passToast.classList.remove('show');
+    }, 1200);
+  }
+
+  function hideStationOverlays(): void {
+    stationPopup.classList.remove('show');
+    passToast.classList.remove('show');
+    window.clearTimeout(popupTimer);
+    window.clearTimeout(passTimer);
+  }
+
+  function processStations(midpoint: number): void {
+    if (midpoint <= lastMidpoint) {
+      return;
+    }
+
+    for (const station of stations) {
+      if (station.s <= lastMidpoint || station.s > midpoint) {
+        continue;
+      }
+      if (station.stop) {
+        if (visitedStops.has(station.name)) {
+          continue;
+        }
+        visitedStops.add(station.name);
+        const alighted = Math.min(pax, station.paxOut);
+        pax -= alighted;
+        const boarded = Math.min(station.paxIn, GAME.paxMax - pax);
+        pax += boarded;
+        passengerFx.spawn(s, station.side, boarded, alighted);
+        showStationPopup(station, boarded, alighted);
+      } else if (!passedStations.has(station.name)) {
+        passedStations.add(station.name);
+        showPassToast(station.name);
+      }
+    }
+
+    lastMidpoint = midpoint;
+  }
+
   function updateCamera(dt: number, snap: boolean): void {
-    desiredPosition.set(GAME.cameraSide, GAME.cameraHeight, -(s - GAME.cameraBack));
-    desiredTarget.set(0, 2.6, -(s + GAME.cameraAhead));
+    if (debugView) {
+      return;
+    }
+
+    const cameraS = Math.max(0, s - GAME.cameraBack);
+    const cameraSample = path.sampleAt(cameraS);
+    desiredPosition.set(
+      cameraSample.x + cameraSample.normalX * GAME.cameraSide,
+      GAME.cameraHeight,
+      cameraSample.z + cameraSample.normalZ * GAME.cameraSide,
+    );
+
+    const lookS = Math.min(path.length, s + GAME.cameraAhead);
+    const lookSample = path.sampleAt(lookS);
+    desiredTarget.set(lookSample.x, 2.6, lookSample.z);
 
     const blend = snap ? 1 : 1 - Math.exp(-7 * dt);
     camera.position.lerp(desiredPosition, blend);
@@ -77,35 +281,106 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
 
   function updateHud(): void {
     timerElement.textContent = formatTime(time);
-    speedElement.textContent = Math.round(v * GAME.speedScale).toLocaleString('en-US');
-    distanceElement.textContent = `${Math.round(
-      Math.min(s, GAME.finishS),
-    ).toLocaleString('en-US')} / ${FINISH_LABEL} m`;
-    progressElement.style.width = `${Math.min(100, (s / GAME.finishS) * 100)}%`;
+    const displaySpeed = v * GAME.speedScale;
+    speedElement.textContent = Math.round(displaySpeed).toLocaleString('en-US');
+    speedometer.update(displaySpeed);
+    routeMap.update(s);
+    paxElement.textContent = String(pax);
+    distanceElement.textContent = `已跑 ${Math.round(realKmAt(s)).toLocaleString(
+      'en-US',
+    )} / ${GAME.realKm.toLocaleString('en-US')} km`;
+
+    const next = stations.find((station) => station.s > s + 0.5);
+    const remaining = stations.filter(
+      (station) => station.stop && station.s >= s - 1,
+    ).length;
+    if (derailing) {
+      statusElement.textContent = `脱线 · ${Math.max(
+        0,
+        GAME.derailReset - derailTimer,
+      ).toFixed(1)} s 后回轨`;
+    } else if (lateralAccel() > GAME.derailAcc * 0.82) {
+      statusElement.textContent = `曲线临界 · ${Math.round(
+        v * GAME.speedScale,
+      ).toLocaleString('en-US')} km/h · 松手减速`;
+    } else {
+      statusElement.textContent = next
+        ? `下一站 ${next.name}${next.stop ? '' : '（通过）'} · 剩余 ${remaining} 站`
+        : '终点 北京 · 剩余 0 站';
+    }
+
+    progressElement.style.width = `${clamp(
+      ((s - path.coreStart) / (path.coreEnd - path.coreStart)) * 100,
+      0,
+      100,
+    )}%`;
   }
 
   function finish(): void {
-    s = GAME.finishS;
+    s = path.coreEnd;
     v = 0;
     finished = true;
     pressing = false;
+    derailing = false;
+    overSpeedTime = 0;
+    tilt = 0;
+    processStations(path.coreEnd + GAME.coachOffset * 0.5 + 1);
+    train.setTilt(0);
     train.place(s);
+    lastFinishTime = time;
+    lastFinishMax = maxV;
+    const previousBest = loadBest();
+    const isNewBest = previousBest === null || time < previousBest.time;
+    if (isNewBest) {
+      saveBest({ time, maxSpeed: maxV, date: new Date().toISOString() });
+    }
     resultTimeElement.textContent = formatTime(time);
     resultMaxElement.textContent = `${Math.round(maxV * GAME.speedScale).toLocaleString(
       'en-US',
     )} km/h`;
+    resultBestElement.textContent = formatTime(
+      isNewBest ? time : (previousBest?.time ?? time),
+    );
+    resultNewElement.classList.toggle('hidden', !isNewBest);
+    const saved = 22 * 3600 + 31 * 60 - time;
+    resultEggElement.textContent =
+      saved > 0
+        ? `比 1462 次快 ${Math.floor(saved / 3600)} 小时 ${Math.floor(
+            (saved % 3600) / 60,
+          )} 分`
+        : '';
     resultElement.classList.remove('hidden');
     startHint.classList.add('hidden');
+    audio.fanfare();
   }
 
   function reset(): void {
-    s = GAME.startS;
+    s = path.coreStart;
     v = 0;
     time = 0;
     started = false;
     finished = false;
     pressing = false;
     maxV = 0;
+    pax = GAME.paxStart;
+    derailing = false;
+    derailTimer = 0;
+    overSpeedTime = 0;
+    tilt = 0;
+    derails = 0;
+    debugView = null;
+    visitedStops.clear();
+    passedStations.clear();
+    lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
+    hideStationOverlays();
+    setHelpVisible(false);
+    window.clearTimeout(shareResetTimer);
+    shareButton.textContent = '分享成绩';
+    shareButton.disabled = false;
+    passengerFx.reset();
+    effects.reset();
+    audio.reset();
+    train.setTilt(0);
     train.place(s);
     resultElement.classList.add('hidden');
     startHint.classList.remove('hidden');
@@ -113,14 +388,161 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
     updateHud();
   }
 
-  function press(): void {
-    if (finished) {
+  function teleportTo(value: number): void {
+    finished = false;
+    pressing = false;
+    started = true;
+    derailing = false;
+    derailTimer = 0;
+    overSpeedTime = 0;
+    tilt = 0;
+    debugView = null;
+    resultElement.classList.add('hidden');
+    startHint.classList.add('hidden');
+    s = clamp(value, 0, path.coreEnd - 0.5);
+    visitedStops.clear();
+    passedStations.clear();
+    lastMidpoint = s - GAME.coachOffset * 0.5;
+    hideStationOverlays();
+    passengerFx.reset();
+    effects.reset();
+    audio.reset();
+    train.setTilt(0);
+    train.place(s);
+    updateCamera(0, true);
+    updateHud();
+  }
+
+  function teleportToStation(name: string): void {
+    const station = stations.find((item) => item.name === name);
+    if (station) {
+      teleportTo(station.s);
+    }
+  }
+
+  function teleportToRiver(name: string): void {
+    const river = path.riverCrossings.find(
+      (item) => item.name.includes(name) || name.includes(item.name),
+    );
+    if (river) {
+      teleportTo(river.s);
+    }
+  }
+
+  function setView(view: DebugView): void {
+    if (view === 'follow') {
+      debugView = null;
+      updateCamera(0, true);
       return;
     }
+
+    if (view === 'train') {
+      const midS = clamp(s - 6, path.coreStart, path.coreEnd);
+      const lookS = clamp(s + 22, path.coreStart, path.coreEnd);
+      const mid = path.sampleAt(midS);
+      const front = path.sampleAt(lookS);
+      debugView = view;
+      camera.position.set(
+        front.x - front.normalX * 10,
+        6.2,
+        front.z - front.normalZ * 10,
+      );
+      camera.lookAt(mid.x, 3.1, mid.z);
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    if (view === 'door') {
+      const coachS = clamp(s - GAME.coachOffset, path.coreStart, path.coreEnd);
+      const sample = path.sampleAt(coachS);
+      const nearest = stations.reduce((best, item) =>
+        Math.abs(item.s - coachS) < Math.abs(best.s - coachS) ? item : best,
+      );
+      debugView = view;
+      camera.position.set(
+        sample.x + sample.normalX * nearest.side * 17,
+        7.2,
+        sample.z + sample.normalZ * nearest.side * 17,
+      );
+      camera.lookAt(
+        sample.x + sample.normalX * nearest.side * 3,
+        1.6,
+        sample.z + sample.normalZ * nearest.side * 3,
+      );
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    if (view === 'station') {
+      const nearest = stations.reduce((best, item) =>
+        Math.abs(item.s - s) < Math.abs(best.s - s) ? item : best,
+      );
+      const target = path.sampleAt(nearest.s);
+      const cameraSample = path.sampleAt(Math.max(path.coreStart, nearest.s - 24));
+      const sideOffset = nearest.side * 14;
+      debugView = view;
+      camera.position.set(
+        cameraSample.x + cameraSample.normalX * sideOffset,
+        6,
+        cameraSample.z + cameraSample.normalZ * sideOffset,
+      );
+      camera.lookAt(
+        target.x + target.normalX * nearest.side * 4,
+        2.6,
+        target.z + target.normalZ * nearest.side * 4,
+      );
+      camera.fov = 52;
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    let targetX = 0;
+    let targetZ = 0;
+    let height = 700;
+    let offsetX = 300;
+    let offsetZ = 500;
+
+    if (view === 'jinan') {
+      const jinan = stations.find((station) => station.name === '济南');
+      if (!jinan) {
+        return;
+      }
+      const sample = path.sampleAt(jinan.s);
+      targetX = sample.x;
+      targetZ = sample.z;
+    } else {
+      const kind = view === 'yangtze' ? 'yangtze' : 'yellow';
+      const river = path.riverCrossings.find((item) => item.kind === kind);
+      if (!river) {
+        return;
+      }
+      const sample = path.sampleAt(river.s);
+      targetX = sample.x;
+      targetZ = sample.z;
+      height = 420;
+      offsetX = 120;
+      offsetZ = 420;
+    }
+
+    debugView = view;
+    camera.position.set(targetX + offsetX, height, targetZ + offsetZ);
+    camera.lookAt(targetX, 2, targetZ);
+    camera.fov = 55;
+    camera.updateProjectionMatrix();
+  }
+
+  function press(): void {
+    if (finished || derailing || !helpOverlay.classList.contains('hidden')) {
+      return;
+    }
+    audio.unlock();
     pressing = true;
     if (!started) {
       started = true;
       startHint.classList.add('hidden');
+      audio.horn();
     }
   }
 
@@ -129,7 +551,17 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
   }
 
   function isUiTarget(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest('#result, #retry') !== null;
+    return (
+      target instanceof Element &&
+      target.closest('#result, #retry, #share, #help, #help-overlay') !== null
+    );
+  }
+
+  function setHelpVisible(visible: boolean): void {
+    helpOverlay.classList.toggle('hidden', !visible);
+    if (visible) {
+      release();
+    }
   }
 
   window.addEventListener('keydown', (event) => {
@@ -170,6 +602,63 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
     retryButton.blur();
   });
 
+  shareButton.addEventListener('click', async (event) => {
+    event.stopPropagation();
+    shareButton.disabled = true;
+    const text = `我在《京沪神车 1462》里用 ${formatTime(
+      lastFinishTime,
+    )} 跑完上海→北京 1,463 km，最高等效时速 ${Math.round(
+      lastFinishMax * GAME.speedScale,
+    ).toLocaleString('en-US')} km/h。`;
+    const outcome = await shareText(text, window.location.href);
+    shareButton.textContent =
+      outcome === 'shared' ? '已分享' : outcome === 'copied' ? '已复制' : '分享成绩';
+    shareButton.disabled = false;
+    window.clearTimeout(shareResetTimer);
+    shareResetTimer = window.setTimeout(() => {
+      shareButton.textContent = '分享成绩';
+    }, 1600);
+    shareButton.blur();
+  });
+
+  helpButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setHelpVisible(true);
+    helpButton.blur();
+  });
+
+  helpCloseButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setHelpVisible(false);
+    helpCloseButton.blur();
+  });
+
+  helpRestartButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setHelpVisible(false);
+    helpRestartButton.blur();
+    reset();
+  });
+
+  muteButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    audio.unlock();
+    updateMuteLabel(audio.toggleMute());
+    muteButton.blur();
+  });
+
+  helpOverlay.addEventListener('pointerdown', (event) => {
+    if (event.target === helpOverlay) {
+      setHelpVisible(false);
+    }
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (event.code === 'Escape') {
+      setHelpVisible(false);
+    }
+  });
+
   function step(dt: number): void {
     if (finished) {
       return;
@@ -179,27 +668,71 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
       time += dt;
     }
 
+    if (derailing) {
+      derailTimer += dt;
+      const targetTilt = derailDirection * GAME.tiltMax;
+      tilt += (targetTilt - tilt) * Math.min(1, dt * 10);
+      train.setTilt(tilt);
+      if (derailTimer >= GAME.derailReset) {
+        derailing = false;
+        derailTimer = 0;
+        overSpeedTime = 0;
+        tilt = 0;
+        train.setTilt(0);
+        train.place(s);
+      }
+      return;
+    }
+
+    const mass = massFactor();
     if (pressing) {
-      const acceleration = GAME.accMax * (1 - v / GAME.vMax);
+      const acceleration = (GAME.accMax / mass) * (1 - v / GAME.vMax);
       v += Math.max(0, acceleration) * dt;
     } else {
-      v = Math.max(0, v - GAME.brake * dt);
+      v = Math.max(0, v - (GAME.brake / mass) * dt);
     }
 
     v = Math.min(v, GAME.vMax);
     s += v * dt;
     maxV = Math.max(maxV, v);
 
-    if (s >= GAME.finishS) {
+    const sample = path.sampleAt(s);
+    const lateral = v * v * Math.abs(sample.curvature);
+    const direction = sample.curvature < 0 ? -1 : 1;
+    const targetTilt =
+      direction *
+      clamp(Math.atan2(lateral, GAME.tiltGravity) * GAME.tiltGain, 0, GAME.tiltMax);
+    tilt += (targetTilt - tilt) * Math.min(1, dt * 6);
+    train.setTilt(tilt);
+
+    if (s >= path.coreEnd) {
       finish();
       return;
     }
 
     train.place(s);
+    processStations(s - GAME.coachOffset * 0.5);
+
+    if (lateral > GAME.derailAcc) {
+      overSpeedTime += dt;
+    } else {
+      overSpeedTime = 0;
+    }
+    if (overSpeedTime >= GAME.derailHold) {
+      triggerDerail();
+    }
   }
 
   const debug: GameDebug = {
-    pathLength: GAME.trackLength,
+    pathLength: path.length,
+    path,
+    stations,
+    riverCrossings: path.riverCrossings,
+    mainlineBypass: path.mainlineBypass,
+    routeSummary: {
+      minRadius: path.minRadius,
+      jinanBypassMinDistance: path.jinanBypassMinDistance,
+    },
     get s() {
       return s;
     },
@@ -212,20 +745,69 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
     get finished() {
       return finished;
     },
+    get pax() {
+      return pax;
+    },
+    get massFactor() {
+      return massFactor();
+    },
+    get derailing() {
+      return derailing;
+    },
+    get tilt() {
+      return tilt;
+    },
+    get derails() {
+      return derails;
+    },
+    get lateralAccel() {
+      return lateralAccel();
+    },
+    get visitedStops() {
+      return visitedStops.size;
+    },
+    get passedStations() {
+      return passedStations.size;
+    },
+    get popupVisible() {
+      return stationPopup.classList.contains('show');
+    },
+    get jumpers() {
+      return passengerFx.count;
+    },
+    get bestTime() {
+      return loadBest()?.time ?? null;
+    },
+    get helpVisible() {
+      return !helpOverlay.classList.contains('hidden');
+    },
+    get muted() {
+      return audio.muted;
+    },
+    get audioRunning() {
+      return audio.running;
+    },
+    get sparkCount() {
+      return effects.sparkCount;
+    },
+    get windOpacity() {
+      return effects.windOpacity;
+    },
     displaySpeed: (speed: number) => speed * GAME.speedScale,
-    teleport: (value: number) => {
-      finished = false;
-      pressing = false;
-      started = true;
-      resultElement.classList.add('hidden');
-      startHint.classList.add('hidden');
-      s = Math.max(0, Math.min(GAME.finishS - 0.5, value));
-      train.place(s);
-      updateCamera(0, true);
-    },
+    realKmAt,
+    pathAt: (value: number) => path.sampleAt(value),
+    nearestS: (x: number, z: number) => path.nearestS(x, z),
+    teleport: teleportTo,
+    teleportToStation,
+    teleportToRiver,
+    setView,
     setSpeed: (speed: number) => {
-      v = Math.max(0, Math.min(GAME.vMax, speed));
+      v = clamp(speed, 0, GAME.vMax);
     },
+    setPax: (value: number) => {
+      pax = clamp(value, 0, GAME.paxMax);
+    },
+    forceDerail: triggerDerail,
     reset,
   };
 
@@ -236,8 +818,15 @@ export function createGame(camera: THREE.PerspectiveCamera, train: Train): Game 
   return {
     update(dt: number): void {
       step(dt);
+      passengerFx.update(dt);
+      effects.update(dt, { s, v, pressing, derailing, tilt });
+      audio.update(dt, v, pressing, started && !finished && !derailing);
       updateCamera(dt, false);
       updateHud();
     },
   };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }

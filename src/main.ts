@@ -1,6 +1,8 @@
 import './style.css';
 import * as THREE from 'three';
 import { createGame } from './game/game';
+import { attachStations, buildRoute } from './game/route';
+import { STATIONS } from './game/stations';
 import { createTrain } from './game/train';
 import { buildWorld } from './game/world';
 
@@ -19,21 +21,25 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
+(window as unknown as { __renderer: THREE.WebGLRenderer }).__renderer = renderer;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(
   55,
   window.innerWidth / window.innerHeight,
-  0.1,
-  16000,
+  0.5,
+  40000,
 );
 
-buildWorld(scene);
+const path = buildRoute();
+const stations = attachStations(path, STATIONS);
 
-const train = createTrain();
+buildWorld(scene, path, stations);
+
+const train = createTrain(path);
 scene.add(train.group);
 
-const game = createGame(camera, train);
+const game = createGame(scene, camera, train, path, stations);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
