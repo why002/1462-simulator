@@ -1,0 +1,15 @@
+export const GAME = {
+  trackLength: 4000,
+  trackVisualEnd: 6000,
+  startS: 70,
+  finishS: 4000,
+  vMax: 54,
+  accMax: 9,
+  brake: 30,
+  speedScale: 360,
+  cameraBack: 40,
+  cameraHeight: 13,
+  cameraSide: -3,
+  cameraAhead: 55,
+  coachOffset: 13,
+} as const;
