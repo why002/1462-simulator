@@ -7,6 +7,8 @@ export interface Station {
   km: number;
   grade: Grade;
   stop: boolean;
+  lat: number;
+  lon: number;
   paxIn: number;
   paxOut: number;
 }
@@ -51,6 +53,7 @@ export interface PathData {
   minRadius: number;
   riverCrossings: RiverCrossing[];
   mainlineBypass: Vec2[];
+  mainlineTrack: Vec2[];
   jinanBypassMinDistance: number;
   sampleAt(s: number): PathSample;
   nearestS(x: number, z: number): number;

@@ -20,7 +20,8 @@ export type DebugView =
   | 'luokou'
   | 'train'
   | 'station'
-  | 'door';
+  | 'door'
+  | 'overview';
 
 export interface Game {
   update(dt: number): void;
@@ -34,6 +35,7 @@ export interface GameDebug {
   readonly mainlineBypass: PathData['mainlineBypass'];
   readonly routeSummary: { minRadius: number; jinanBypassMinDistance: number };
   readonly s: number;
+  readonly km: number;
   readonly v: number;
   readonly time: number;
   readonly finished: boolean;
@@ -58,6 +60,7 @@ export interface GameDebug {
   pathAt(s: number): PathSample;
   nearestS(x: number, z: number): number;
   teleport(s: number): void;
+  teleportKm(km: number): void;
   teleportToStation(name: string): void;
   teleportToRiver(name: string): void;
   setView(view: DebugView): void;
@@ -99,6 +102,7 @@ export function createGame(
   const helpCloseButton = getElement<HTMLButtonElement>('help-close');
   const helpRestartButton = getElement<HTMLButtonElement>('help-restart');
   const muteButton = getElement<HTMLButtonElement>('mute');
+  const defaultFog = scene.fog;
   const passengerFx = createPassengerFx(scene, path);
   const effects = createEffects(scene, path);
   const audio = createAudio();
@@ -126,6 +130,7 @@ export function createGame(
   let debugView: DebugView | null = null;
   const visitedStops = new Set<string>();
   const passedStations = new Set<string>();
+  const crossedRivers = new Set<string>();
   let lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
   let popupTimer = 0;
   let passTimer = 0;
@@ -133,6 +138,10 @@ export function createGame(
   const desiredPosition = new THREE.Vector3();
   const desiredTarget = new THREE.Vector3();
   const smoothTarget = new THREE.Vector3();
+  const pathPosition = new THREE.Vector3();
+  const pathTarget = new THREE.Vector3();
+  const tangentPosition = new THREE.Vector3();
+  const tangentTarget = new THREE.Vector3();
 
   function getElement<T extends HTMLElement = HTMLElement>(id: string): T {
     const element = document.getElementById(id);
@@ -250,22 +259,67 @@ export function createGame(
     lastMidpoint = midpoint;
   }
 
+  function processRivers(previous: number, midpoint: number): void {
+    if (midpoint <= previous) {
+      return;
+    }
+    for (const river of path.riverCrossings) {
+      if (river.s <= previous || river.s > midpoint || crossedRivers.has(river.name)) {
+        continue;
+      }
+      crossedRivers.add(river.name);
+      passToast.textContent =
+        river.kind === 'yangtze' ? '跨越长江 · 南京长江大桥' : '跨越黄河 · 黄河大桥';
+      passToast.classList.add('show');
+      window.clearTimeout(passTimer);
+      passTimer = window.setTimeout(() => {
+        passToast.classList.remove('show');
+      }, 2200);
+    }
+  }
+
   function updateCamera(dt: number, snap: boolean): void {
     if (debugView) {
       return;
     }
 
-    const cameraS = Math.max(0, s - GAME.cameraBack);
+    const current = path.sampleAt(s);
+    const curvature = Math.abs(current.curvature);
+    const radius = curvature > 1e-6 ? 1 / curvature : Number.POSITIVE_INFINITY;
+    const tight = clamp(1 - radius / GAME.cameraTightRadius, 0, 1);
+    const cameraBack = GAME.cameraBack * (1 - GAME.cameraTightBack * tight);
+    const cameraHeight = GAME.cameraHeight + GAME.cameraTightHeight * tight;
+    const cameraSide = GAME.cameraSide * (1 - GAME.cameraTightSide * tight);
+    const cameraAhead = GAME.cameraAhead * (1 - GAME.cameraTightAhead * tight);
+
+    const cameraS = Math.max(0, s - cameraBack);
     const cameraSample = path.sampleAt(cameraS);
-    desiredPosition.set(
-      cameraSample.x + cameraSample.normalX * GAME.cameraSide,
-      GAME.cameraHeight,
-      cameraSample.z + cameraSample.normalZ * GAME.cameraSide,
+    pathPosition.set(
+      cameraSample.x + cameraSample.normalX * cameraSide,
+      cameraHeight,
+      cameraSample.z + cameraSample.normalZ * cameraSide,
     );
 
-    const lookS = Math.min(path.length, s + GAME.cameraAhead);
+    const lookS = Math.min(path.length, s + cameraAhead);
     const lookSample = path.sampleAt(lookS);
-    desiredTarget.set(lookSample.x, 2.6, lookSample.z);
+    pathTarget.set(lookSample.x, 2.6, lookSample.z);
+
+    // 急弯时改用沿列车当前切线的追车相机，避免相机绕到弯道外侧丢失列车。
+    const forwardX = -Math.sin(current.heading);
+    const forwardZ = -Math.cos(current.heading);
+    tangentPosition.set(
+      current.x - forwardX * cameraBack + current.normalX * cameraSide,
+      cameraHeight,
+      current.z - forwardZ * cameraBack + current.normalZ * cameraSide,
+    );
+    tangentTarget.set(
+      current.x + forwardX * cameraAhead,
+      2.6,
+      current.z + forwardZ * cameraAhead,
+    );
+
+    desiredPosition.copy(pathPosition).lerp(tangentPosition, tight);
+    desiredTarget.copy(pathTarget).lerp(tangentTarget, tight);
 
     const blend = snap ? 1 : 1 - Math.exp(-7 * dt);
     camera.position.lerp(desiredPosition, blend);
@@ -371,6 +425,7 @@ export function createGame(
     debugView = null;
     visitedStops.clear();
     passedStations.clear();
+    crossedRivers.clear();
     lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
     hideStationOverlays();
     setHelpVisible(false);
@@ -402,6 +457,7 @@ export function createGame(
     s = clamp(value, 0, path.coreEnd - 0.5);
     visitedStops.clear();
     passedStations.clear();
+    crossedRivers.clear();
     lastMidpoint = s - GAME.coachOffset * 0.5;
     hideStationOverlays();
     passengerFx.reset();
@@ -411,6 +467,13 @@ export function createGame(
     train.place(s);
     updateCamera(0, true);
     updateHud();
+  }
+
+  function teleportToKm(km: number): void {
+    if (!Number.isFinite(km)) {
+      return;
+    }
+    teleportTo(GAME.coreStart + clamp(km, 0, GAME.realKm) * GAME.metersPerKm);
   }
 
   function teleportToStation(name: string): void {
@@ -430,9 +493,35 @@ export function createGame(
   }
 
   function setView(view: DebugView): void {
+    scene.fog = view === 'overview' ? null : defaultFog;
+
     if (view === 'follow') {
       debugView = null;
       updateCamera(0, true);
+      return;
+    }
+
+    if (view === 'overview') {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (let value = path.coreStart; value <= path.coreEnd; value += 20) {
+        const sample = path.sampleAt(value);
+        minX = Math.min(minX, sample.x);
+        maxX = Math.max(maxX, sample.x);
+        minZ = Math.min(minZ, sample.z);
+        maxZ = Math.max(maxZ, sample.z);
+      }
+      const centerX = (minX + maxX) * 0.5;
+      const centerZ = (minZ + maxZ) * 0.5;
+      const extent = Math.max(maxX - minX, maxZ - minZ, 1000);
+      const height = (extent * 1.3) / (2 * Math.tan((55 * Math.PI) / 360));
+      debugView = view;
+      camera.position.set(centerX, height, centerZ + extent * 0.08);
+      camera.lookAt(centerX, 0, centerZ);
+      camera.fov = 55;
+      camera.updateProjectionMatrix();
       return;
     }
 
@@ -711,7 +800,10 @@ export function createGame(
     }
 
     train.place(s);
-    processStations(s - GAME.coachOffset * 0.5);
+    const midpoint = s - GAME.coachOffset * 0.5;
+    const previousMidpoint = lastMidpoint;
+    processStations(midpoint);
+    processRivers(previousMidpoint, midpoint);
 
     if (lateral > GAME.derailAcc) {
       overSpeedTime += dt;
@@ -735,6 +827,9 @@ export function createGame(
     },
     get s() {
       return s;
+    },
+    get km() {
+      return realKmAt(s);
     },
     get v() {
       return v;
@@ -798,6 +893,7 @@ export function createGame(
     pathAt: (value: number) => path.sampleAt(value),
     nearestS: (x: number, z: number) => path.nearestS(x, z),
     teleport: teleportTo,
+    teleportKm: teleportToKm,
     teleportToStation,
     teleportToRiver,
     setView,

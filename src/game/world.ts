@@ -10,6 +10,13 @@ interface Bounds {
   sizeZ: number;
 }
 
+interface RibbonLine {
+  x: ArrayLike<number>;
+  z: ArrayLike<number>;
+  normalX: ArrayLike<number>;
+  normalZ: ArrayLike<number>;
+}
+
 export function buildWorld(
   scene: THREE.Scene,
   path: PathData,
@@ -32,7 +39,7 @@ export function buildWorld(
   for (const river of path.riverCrossings) {
     buildRiver(scene, path, river);
   }
-  buildBypass(scene, path);
+  buildMainlineTrack(scene, path);
 }
 
 function addLights(scene: THREE.Scene): void {
@@ -86,22 +93,22 @@ function buildTrack(scene: THREE.Scene, path: PathData): void {
 
 function addRibbon(
   scene: THREE.Scene,
-  path: PathData,
+  line: RibbonLine,
   width: number,
   offset: number,
   y: number,
   material: THREE.Material,
 ): void {
-  const sampleCount = path.x.length;
+  const sampleCount = line.x.length;
   const positions = new Float32Array(sampleCount * 2 * 3);
   const uvs = new Float32Array(sampleCount * 2 * 2);
   const indices: number[] = [];
 
   for (let i = 0; i < sampleCount; i += 1) {
-    const nx = path.normalX[i];
-    const nz = path.normalZ[i];
-    const centerX = path.x[i] + nx * offset;
-    const centerZ = path.z[i] + nz * offset;
+    const nx = line.normalX[i];
+    const nz = line.normalZ[i];
+    const centerX = line.x[i] + nx * offset;
+    const centerZ = line.z[i] + nz * offset;
     const leftX = centerX - nx * width * 0.5;
     const leftZ = centerZ - nz * width * 0.5;
     const rightX = centerX + nx * width * 0.5;
@@ -550,9 +557,12 @@ function buildRiver(scene: THREE.Scene, path: PathData, river: RiverCrossing): v
   group.position.set(sample.x, 0, sample.z);
   group.rotation.y = sample.heading;
 
-  const waterColor = river.kind === 'yangtze' ? 0x2e6f8f : 0xb08a4a;
+  const waterColor = river.kind === 'yangtze' ? 0x2e6f8f : 0xc08b2e;
+  // river.width 是真实河宽（沿线路方向，1 游戏米 = 100 真实米）；
+  // 横向水面延伸到雾距，避免在 1:100,000 尺度下露出一条短水沟。
+  const waterExtent = 9000;
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(river.width, river.bridgeLength),
+    new THREE.PlaneGeometry(waterExtent, river.width),
     new THREE.MeshStandardMaterial({
       color: waterColor,
       roughness: 0.25,
@@ -564,58 +574,153 @@ function buildRiver(scene: THREE.Scene, path: PathData, river: RiverCrossing): v
   group.add(water);
 
   const deckMaterial = new THREE.MeshStandardMaterial({
-    color: 0x6f7578,
-    roughness: 0.8,
-    metalness: 0.2,
+    color: 0x565e60,
+    roughness: 0.75,
+    metalness: 0.25,
   });
   const deck = new THREE.Mesh(
-    new THREE.BoxGeometry(7.6, 0.3, river.bridgeLength),
+    new THREE.BoxGeometry(8.4, 0.24, river.bridgeLength),
     deckMaterial,
   );
+  deck.position.y = 0.45;
   group.add(deck);
 
+  // 桁架用细杆合并成一格 mesh，避免实心墙挡住车窗。
   const trussMaterial = new THREE.MeshStandardMaterial({
-    color: 0x8a9499,
+    color: 0x7d888a,
     roughness: 0.45,
-    metalness: 0.6,
+    metalness: 0.55,
   });
-  for (const x of [-4.1, 4.1]) {
-    const truss = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 2.8, river.bridgeLength),
-      trussMaterial,
-    );
-    truss.position.set(x, 1.6, 0);
-    group.add(truss);
+  const trussHeight = river.kind === 'yangtze' ? 5.6 : 5.2;
+  const panel = river.kind === 'yangtze' ? 8.5 : 4.3;
+  const panels = Math.max(2, Math.round(river.bridgeLength / panel));
+  const panelLength = river.bridgeLength / panels;
+  const deckY = 0.45;
+  const parts: THREE.BufferGeometry[] = [];
+  const addBar = (
+    width: number,
+    height: number,
+    length: number,
+    x: number,
+    y: number,
+    z: number,
+    rotationX = 0,
+  ): void => {
+    const geometry = new THREE.BoxGeometry(width, height, length);
+    if (rotationX !== 0) {
+      geometry.rotateX(rotationX);
+    }
+    geometry.translate(x, y, z);
+    parts.push(geometry);
+  };
+
+  for (const side of [-1, 1]) {
+    const x = side * 4;
+    addBar(0.2, 0.2, river.bridgeLength, x, deckY + trussHeight, 0);
+    addBar(0.18, 0.18, river.bridgeLength, x, deckY + 0.18, 0);
+    for (let i = 0; i <= panels; i += 1) {
+      const z = -river.bridgeLength * 0.5 + i * panelLength;
+      addBar(0.16, trussHeight, 0.16, x, deckY + trussHeight * 0.5, z);
+    }
+    const diagonalLength = Math.hypot(panelLength, trussHeight);
+    for (let i = 0; i < panels; i += 1) {
+      const z = -river.bridgeLength * 0.5 + (i + 0.5) * panelLength;
+      const rotationX = (i % 2 === 0 ? -1 : 1) * Math.atan2(trussHeight, panelLength);
+      addBar(0.12, 0.12, diagonalLength, x, deckY + trussHeight * 0.5, z, rotationX);
+    }
   }
-  for (const z of [-river.bridgeLength * 0.3, 0, river.bridgeLength * 0.3]) {
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(8.7, 0.35, 0.35), trussMaterial);
-    beam.position.set(0, 3, z);
-    group.add(beam);
+  for (let i = 0; i <= panels; i += 1) {
+    const z = -river.bridgeLength * 0.5 + i * panelLength;
+    addBar(8.2, 0.14, 0.14, 0, deckY + trussHeight, z);
   }
+  const truss = new THREE.Mesh(mergeGeometries(parts, false), trussMaterial);
+  group.add(truss);
 
   scene.add(group);
 }
 
-function buildBypass(scene: THREE.Scene, path: PathData): void {
-  if (path.mainlineBypass.length < 2) {
+function buildMainlineTrack(scene: THREE.Scene, path: PathData): void {
+  const track = path.mainlineTrack;
+  if (track.length < 2) {
     return;
   }
-  const points = path.mainlineBypass.map(
-    (point) => new THREE.Vector3(point.x, 0.6, point.z),
-  );
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const line = new THREE.Line(
-    geometry,
-    new THREE.LineDashedMaterial({
-      color: 0x9aa8a3,
-      dashSize: 12,
-      gapSize: 9,
-      transparent: true,
-      opacity: 0.8,
-    }),
-  );
-  line.computeLineDistances();
-  scene.add(line);
+
+  const count = track.length;
+  const x = new Float64Array(count);
+  const z = new Float64Array(count);
+  const normalX = new Float64Array(count);
+  const normalZ = new Float64Array(count);
+  const heading = new Float64Array(count);
+  for (let i = 0; i < count; i += 1) {
+    x[i] = track[i].x;
+    z[i] = track[i].z;
+    const i0 = Math.max(0, i - 1);
+    const i1 = Math.min(count - 1, i + 1);
+    const dx = track[i1].x - track[i0].x;
+    const dz = track[i1].z - track[i0].z;
+    const length = Math.hypot(dx, dz);
+    const tx = length > 1e-6 ? dx / length : 0;
+    const tz = length > 1e-6 ? dz / length : -1;
+    heading[i] = Math.atan2(-tx, -tz);
+    normalX[i] = -tz;
+    normalZ[i] = tx;
+  }
+  const line: RibbonLine = { x, z, normalX, normalZ };
+
+  const ballastMaterial = new THREE.MeshStandardMaterial({
+    color: 0x6b6259,
+    roughness: 1,
+    side: THREE.DoubleSide,
+  });
+  addRibbon(scene, line, 5.4, 0, 0.256, ballastMaterial);
+
+  const railMaterial = new THREE.MeshStandardMaterial({
+    color: 0xc7d0d6,
+    roughness: 0.32,
+    metalness: 0.82,
+    side: THREE.DoubleSide,
+  });
+  addRibbon(scene, line, 0.14, -0.75, 0.456, railMaterial);
+  addRibbon(scene, line, 0.14, 0.75, 0.456, railMaterial);
+
+  const cumulative = new Float64Array(count);
+  for (let i = 1; i < count; i += 1) {
+    cumulative[i] =
+      cumulative[i - 1] + Math.hypot(x[i] - x[i - 1], z[i] - z[i - 1]);
+  }
+  const totalLength = cumulative[count - 1];
+  const spacing = 3.2;
+  const sleepers: Array<{ x: number; z: number; heading: number }> = [];
+  let segment = 0;
+  for (let distance = spacing * 0.5; distance < totalLength; distance += spacing) {
+    while (segment < count - 2 && cumulative[segment + 1] < distance) {
+      segment += 1;
+    }
+    const segmentLength = cumulative[segment + 1] - cumulative[segment];
+    const t = segmentLength > 1e-6 ? (distance - cumulative[segment]) / segmentLength : 0;
+    sleepers.push({
+      x: x[segment] + (x[segment + 1] - x[segment]) * t,
+      z: z[segment] + (z[segment + 1] - z[segment]) * t,
+      heading: heading[segment],
+    });
+  }
+  if (sleepers.length > 0) {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(2.7, 0.12, 0.26),
+      new THREE.MeshStandardMaterial({ color: 0x8b7a67, roughness: 1 }),
+      sleepers.length,
+    );
+    const dummy = new THREE.Object3D();
+    sleepers.forEach((sleeper, index) => {
+      dummy.position.set(sleeper.x, 0.316, sleeper.z);
+      dummy.rotation.set(0, sleeper.heading, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(index, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+  }
 }
 
 function buildGuideBand(scene: THREE.Scene, path: PathData): void {

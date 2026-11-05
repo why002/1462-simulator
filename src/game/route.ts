@@ -1,5 +1,5 @@
-import * as THREE from 'three';
 import { GAME } from './config';
+import { STATIONS } from './stations';
 import type {
   PathData,
   PathSample,
@@ -24,101 +24,71 @@ interface RiverDefinition {
   kind: 'yangtze' | 'yellow';
 }
 
-// 几何控制点只保留 1:100,000 下仍能保持缓弯的城际锚点。
-// 长江桥、党家庄、济南南等站台里程仍由 stations.ts 按 s=70+km×10 定位，
-// 不再作为几何控制点，避免 2–8 km 的小折角被压缩成发卡弯。
+// 66 个建模车站全部作为几何控制点；济南线再插入以下非车站途径点：
+// 泰山后的京沪/济南线分歧点、济南东北经点、济南线经点、西侧经点、
+// 桥南西经点、京沪正线会合点、黄河大桥。站台仍严格按 s 定位。
+const ROUTE_VIAS: ControlPoint[] = [
+  { name: '京沪/济南线分歧点', lat: 36.578613, lon: 116.903536, km: 952.5 },
+  { name: '济南东北经点', lat: 36.70959, lon: 117.000743, km: 970.0 },
+  { name: '济南线经点', lat: 36.705241, lon: 116.942292, km: 975.0 },
+  { name: '济南西经点', lat: 36.701534, lon: 116.917067, km: 977.0 },
+  { name: '桥南西经点', lat: 36.690657, lon: 116.861892, km: 981.7 },
+  { name: '京沪正线会合点', lat: 36.700742, lon: 116.835851, km: 984.3 },
+  { name: '黄河大桥', lat: 36.717332, lon: 116.818034, km: 987.2 },
+];
+
 const CONTROL_POINTS: ControlPoint[] = [
-  { name: '上海', lat: 31.2495, lon: 121.4557, km: 0 },
-  { name: '安亭', lat: 31.31, lon: 121.16, km: 27 },
-  { name: '昆山', lat: 31.385, lon: 120.98, km: 49 },
-  { name: '苏州', lat: 31.329, lon: 120.609, km: 84 },
-  { name: '无锡', lat: 31.58, lon: 120.3, km: 126 },
-  { name: '常州', lat: 31.78, lon: 119.95, km: 165 },
-  { name: '丹阳', lat: 32.0, lon: 119.6, km: 209 },
-  { name: '镇江', lat: 32.19, lon: 119.43, km: 238 },
-  { name: '南京', lat: 32.088, lon: 118.798, km: 303 },
-  { name: '滁州北', lat: 32.3, lon: 118.31, km: 359 },
-  { name: '明光', lat: 32.78, lon: 117.99, km: 423 },
-  { name: '蚌埠', lat: 32.92, lon: 117.36, km: 484 },
-  { name: '宿州', lat: 33.64, lon: 116.98, km: 574 },
-  { name: '徐州', lat: 34.267, lon: 117.183, km: 649 },
-  { name: '枣庄西', lat: 34.81, lon: 117.32, km: 716 },
-  { name: '滕州', lat: 35.09, lon: 117.16, km: 750 },
-  { name: '邹城', lat: 35.4, lon: 116.97, km: 790 },
-  { name: '兖州', lat: 35.55, lon: 116.83, km: 810 },
-  { name: '泰山', lat: 36.19, lon: 117.1, km: 895 },
-  { name: '济南', lat: 36.67, lon: 116.99, km: 966 },
-  { name: '泺口桥', lat: 36.76, lon: 117.0, km: 975 },
-  { name: '禹城', lat: 36.94, lon: 116.64, km: 1021 },
-  { name: '德州', lat: 37.44, lon: 116.36, km: 1087 },
-  { name: '沧州', lat: 38.3, lon: 116.87, km: 1201 },
-  { name: '天津西', lat: 39.15, lon: 117.15, km: 1316 },
-  { name: '杨村', lat: 39.38, lon: 117.06, km: 1354 },
-  { name: '广阳', lat: 39.51, lon: 116.7, km: 1389 },
-  { name: '黄村', lat: 39.73, lon: 116.34, km: 1430 },
-  { name: '北京丰台', lat: 39.85, lon: 116.32, km: 1447 },
-  { name: '北京', lat: 39.902, lon: 116.427, km: 1463 },
-];
+  ...STATIONS.map((station) => ({
+    name: station.name,
+    lat: station.lat,
+    lon: station.lon,
+    km: station.km,
+  })),
+  ...ROUTE_VIAS,
+].sort((a, b) => a.km - b.km);
 
+// 用户提供的京沪正线：与 1462 在泰山后分歧点分开，在桥南会合点与
+// 1462 会合，之后共用黄河大桥。游戏内正线取「分离点 → 汇合点」的
+// 直线方向铺轨，两端用缓和曲线接入；详细测点保留在本地数据备查。
 const BYPASS_POINTS: Array<[number, number]> = [
-  [36.579, 116.897],
-  [36.62, 116.86],
-  [36.72, 116.8],
-  [36.82, 116.72],
-  [36.94, 116.64],
+  [36.578613, 116.903536],
+  [36.601198, 116.901847],
+  [36.636368, 116.891005],
+  [36.668667, 116.891422],
+  [36.700742, 116.835851],
+  [36.717332, 116.818034],
 ];
 
-// s 由里程给出，并避开站台净空：长江水面不能盖住南京站，
-// 黄河水面不能盖住济南站；两处仍严格位于相邻建模车站之间。
+const MAINLINE_END_INDEX = 4;
+
+// 真实尺度：1 游戏米 = 100 真实米。长江在南京桥址约 1.5 km 宽，
+// 南京长江大桥约 6.8 km；黄河大桥（用户提供桥位）约 1.0 km 宽、1.3 km 长。
 const RIVERS: RiverDefinition[] = [
   {
     name: '长江',
-    km: 325,
-    width: 320,
-    bridgeLength: 380,
+    km: 311,
+    width: 15,
+    bridgeLength: 68,
     kind: 'yangtze',
   },
   {
-    name: '黄河（泺口桥）',
-    km: 986,
-    width: 250,
-    bridgeLength: 300,
+    name: '黄河大桥',
+    km: 987.2,
+    width: 10,
+    bridgeLength: 13,
     kind: 'yellow',
   },
 ];
 
 const PROJECTION_LAT0 = 32;
 const PROJECTION_LON0 = 119.5;
-const DENSE_SAMPLES = 30000;
-const SMOOTH_SIGMA = 220;
+// 66 个真实站坐标经 1:100,000 压缩后，个别相邻小站只隔 30–60 游戏米；
+// 只做很轻的平滑（σ=50 m），保留真实走向中的急弯与发卡弯，最小半径约 50 m，
+// 弯道必须提前大幅制动。
+const SMOOTH_SIGMA = 50;
 
 export function buildRoute(): PathData {
   const projected = CONTROL_POINTS.map((point) => project(point.lat, point.lon));
-  const curvePoints = projected.map((point) => new THREE.Vector3(point.x, 0, point.z));
-  const curve = new THREE.CatmullRomCurve3(curvePoints, false, 'centripetal', 0.5);
-
-  const dense: THREE.Vector3[] = [];
-  for (let i = 0; i <= DENSE_SAMPLES; i += 1) {
-    dense.push(curve.getPoint(i / DENSE_SAMPLES));
-  }
-
-  const cumulative = new Float64Array(dense.length);
-  for (let i = 1; i < dense.length; i += 1) {
-    cumulative[i] = cumulative[i - 1] + dense[i].distanceTo(dense[i - 1]);
-  }
-
-  const geometricLength = cumulative[cumulative.length - 1];
-  if (!(geometricLength > 0)) {
-    throw new Error('Route geometric length is zero');
-  }
-  const scale = GAME.coreLength / geometricLength;
-
-  const controlArc = CONTROL_POINTS.map((_, index) => {
-    const t = index / (CONTROL_POINTS.length - 1);
-    const denseIndex = Math.round(t * DENSE_SAMPLES);
-    return cumulative[denseIndex];
-  });
-
   const sAtControl = CONTROL_POINTS.map(
     (point) => GAME.coreStart + point.km * GAME.metersPerKm,
   );
@@ -135,6 +105,18 @@ export function buildRoute(): PathData {
   const coreCount = GAME.coreLength + 1;
   const rawX = new Float64Array(coreCount);
   const rawZ = new Float64Array(coreCount);
+  rawX[0] = projected[0].x;
+  rawZ[0] = projected[0].z;
+
+  const ghostStart = {
+    x: 2 * projected[0].x - projected[1].x,
+    z: 2 * projected[0].z - projected[1].z,
+  };
+  const lastPoint = projected.length - 1;
+  const ghostEnd = {
+    x: 2 * projected[lastPoint].x - projected[lastPoint - 1].x,
+    z: 2 * projected[lastPoint].z - projected[lastPoint - 1].z,
+  };
 
   let segment = 0;
   for (let i = 0; i < coreCount; i += 1) {
@@ -144,15 +126,63 @@ export function buildRoute(): PathData {
     }
     const s0 = sAtControl[segment];
     const s1 = sAtControl[segment + 1];
-    const t = s1 > s0 ? clamp((s - s0) / (s1 - s0), 0, 1) : 0;
-    const targetArc = controlArc[segment] + t * (controlArc[segment + 1] - controlArc[segment]);
-    const sample = sampleDense(dense, cumulative, targetArc);
-    rawX[i] = sample.x * scale;
-    rawZ[i] = sample.z * scale;
+    const u = s1 > s0 ? clamp((s - s0) / (s1 - s0), 0, 1) : 0;
+    const p0 = segment > 0 ? projected[segment - 1] : ghostStart;
+    const p1 = projected[segment];
+    const p2 = projected[segment + 1];
+    const p3 = segment + 2 <= lastPoint ? projected[segment + 2] : ghostEnd;
+    const point = catmullRomPoint(p0, p1, p2, p3, u);
+    rawX[i] = point.x;
+    rawZ[i] = point.z;
   }
 
-  const smoothed = smoothPolyline(rawX, rawZ, SMOOTH_SIGMA);
-  const { x: coreX, z: coreZ } = resampleUniform(smoothed.x, smoothed.z);
+  // 在首尾各延长 3σ 的直线再平滑，避免反射边界把端点切线压成零、
+  // 导致首尾上百米内采样挤在一起；平滑后只取中间的核心段。
+  const extend = Math.ceil(SMOOTH_SIGMA * 3);
+  const extendedCount = coreCount + extend * 2;
+  const extendedX = new Float64Array(extendedCount);
+  const extendedZ = new Float64Array(extendedCount);
+  const startDir = normalize2(
+    rawX[20] - rawX[0],
+    rawZ[20] - rawZ[0],
+  );
+  const endDir = normalize2(
+    rawX[coreCount - 1] - rawX[coreCount - 21],
+    rawZ[coreCount - 1] - rawZ[coreCount - 21],
+  );
+  for (let k = 1; k <= extend; k += 1) {
+    extendedX[extend - k] = rawX[0] - startDir.x * k;
+    extendedZ[extend - k] = rawZ[0] - startDir.z * k;
+    extendedX[extend + coreCount - 1 + k] = rawX[coreCount - 1] + endDir.x * k;
+    extendedZ[extend + coreCount - 1 + k] = rawZ[coreCount - 1] + endDir.z * k;
+  }
+  for (let i = 0; i < coreCount; i += 1) {
+    extendedX[extend + i] = rawX[i];
+    extendedZ[extend + i] = rawZ[i];
+  }
+  const smoothedExtended = smoothPolyline(extendedX, extendedZ, SMOOTH_SIGMA);
+  const smoothed = {
+    x: smoothedExtended.x.slice(extend, extend + coreCount),
+    z: smoothedExtended.z.slice(extend, extend + coreCount),
+  };
+
+  let geometricLength = 0;
+  for (let i = 1; i < coreCount; i += 1) {
+    geometricLength += Math.hypot(
+      smoothed.x[i] - smoothed.x[i - 1],
+      smoothed.z[i] - smoothed.z[i - 1],
+    );
+  }
+  if (!(geometricLength > 0)) {
+    throw new Error('Route geometric length is zero');
+  }
+  const scale = GAME.coreLength / geometricLength;
+  const coreX = new Float64Array(coreCount);
+  const coreZ = new Float64Array(coreCount);
+  for (let i = 0; i < coreCount; i += 1) {
+    coreX[i] = smoothed.x[i] * scale;
+    coreZ[i] = smoothed.z[i] * scale;
+  }
 
   const totalSamples = GAME.trackLength + 1;
   const X = new Float32Array(totalSamples);
@@ -229,7 +259,18 @@ export function buildRoute(): PathData {
     return { x: point.x * scale, z: point.z * scale };
   });
 
-  const jinanBypassMinDistance = minInteriorDistance(mainlineBypass, X, Z);
+  const mainlineTrack = buildMainlineTrack(
+    [mainlineBypass[0], mainlineBypass[MAINLINE_END_INDEX]],
+    nearestS,
+    X,
+    Z,
+  );
+
+  const jinanBypassMinDistance = minInteriorDistance(
+    mainlineBypass.slice(1, MAINLINE_END_INDEX),
+    X,
+    Z,
+  );
 
   const riverCrossings: RiverCrossing[] = RIVERS.map((river) => ({
     name: river.name,
@@ -267,6 +308,7 @@ export function buildRoute(): PathData {
     minRadius,
     riverCrossings,
     mainlineBypass,
+    mainlineTrack,
     jinanBypassMinDistance,
     sampleAt,
     nearestS,
@@ -305,24 +347,25 @@ function project(lat: number, lon: number): Vec2 {
   };
 }
 
-function sampleDense(
-  points: THREE.Vector3[],
-  cumulative: Float64Array,
-  target: number,
-): THREE.Vector3 {
-  let low = 0;
-  let high = cumulative.length - 1;
-  while (low + 1 < high) {
-    const middle = (low + high) >> 1;
-    if (cumulative[middle] <= target) {
-      low = middle;
-    } else {
-      high = middle;
-    }
-  }
-  const span = cumulative[high] - cumulative[low];
-  const f = span > 1e-9 ? (target - cumulative[low]) / span : 0;
-  return new THREE.Vector3().lerpVectors(points[low], points[high], f);
+function catmullRomPoint(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, u: number): Vec2 {
+  const d01 = Math.max(1e-6, Math.hypot(p1.x - p0.x, p1.z - p0.z) ** 0.5);
+  const d12 = Math.max(1e-6, Math.hypot(p2.x - p1.x, p2.z - p1.z) ** 0.5);
+  const d23 = Math.max(1e-6, Math.hypot(p3.x - p2.x, p3.z - p2.z) ** 0.5);
+  const t0 = 0;
+  const t1 = t0 + d01;
+  const t2 = t1 + d12;
+  const t3 = t2 + d23;
+  const t = t1 + (t2 - t1) * u;
+  const lerp = (a: Vec2, b: Vec2, ta: number, tb: number): Vec2 => ({
+    x: a.x + ((b.x - a.x) * (t - ta)) / (tb - ta),
+    z: a.z + ((b.z - a.z) * (t - ta)) / (tb - ta),
+  });
+  const a1 = lerp(p0, p1, t0, t1);
+  const a2 = lerp(p1, p2, t1, t2);
+  const a3 = lerp(p2, p3, t2, t3);
+  const b1 = lerp(a1, a2, t0, t2);
+  const b2 = lerp(a2, a3, t1, t3);
+  return lerp(b1, b2, t1, t2);
 }
 
 function smoothPolyline(
@@ -364,32 +407,6 @@ function smoothPolyline(
   return { x: apply(x), z: apply(z) };
 }
 
-function resampleUniform(
-  x: Float64Array,
-  z: Float64Array,
-): { x: Float64Array; z: Float64Array } {
-  const count = x.length;
-  const cumulative = new Float64Array(count);
-  for (let i = 1; i < count; i += 1) {
-    cumulative[i] = cumulative[i - 1] + Math.hypot(x[i] - x[i - 1], z[i] - z[i - 1]);
-  }
-  const total = cumulative[count - 1];
-  const resultX = new Float64Array(count);
-  const resultZ = new Float64Array(count);
-  let cursor = 0;
-  for (let i = 0; i < count; i += 1) {
-    const target = (i * total) / (count - 1);
-    while (cursor < count - 2 && cumulative[cursor + 1] < target) {
-      cursor += 1;
-    }
-    const span = cumulative[cursor + 1] - cumulative[cursor];
-    const f = span > 1e-9 ? (target - cumulative[cursor]) / span : 0;
-    resultX[i] = x[cursor] + (x[cursor + 1] - x[cursor]) * f;
-    resultZ[i] = z[cursor] + (z[cursor + 1] - z[cursor]) * f;
-  }
-  return { x: resultX, z: resultZ };
-}
-
 function minInteriorDistance(bypass: Vec2[], X: Float32Array, Z: Float32Array): number {
   if (bypass.length < 3) {
     return 0;
@@ -409,6 +426,117 @@ function minInteriorDistance(bypass: Vec2[], X: Float32Array, Z: Float32Array): 
     minimum = Math.min(minimum, best);
   }
   return Number.isFinite(minimum) ? minimum : 0;
+}
+
+function buildMainlineTrack(
+  bypass: Vec2[],
+  nearestS: (x: number, z: number) => number,
+  X: Float32Array,
+  Z: Float32Array,
+): Vec2[] {
+  if (bypass.length < 2) {
+    return [];
+  }
+  const startPoint = bypass[0];
+  const endPoint = bypass[bypass.length - 1];
+  const startIndex = nearestS(startPoint.x, startPoint.z);
+  const endIndex = nearestS(endPoint.x, endPoint.z);
+  const startJoin = { x: X[startIndex], z: Z[startIndex] };
+  const endJoin = { x: X[endIndex], z: Z[endIndex] };
+
+  const routeTangent = (index: number): Vec2 => {
+    const i0 = Math.max(0, index - 1);
+    const i1 = Math.min(X.length - 1, index + 1);
+    const dx = X[i1] - X[i0];
+    const dz = Z[i1] - Z[i0];
+    const length = Math.hypot(dx, dz);
+    return length > 1e-6 ? { x: dx / length, z: dz / length } : { x: 0, z: -1 };
+  };
+
+  const startTangent = routeTangent(startIndex);
+  const endTangent = routeTangent(endIndex);
+  const dx = endPoint.x - startPoint.x;
+  const dz = endPoint.z - startPoint.z;
+  const chordLength = Math.hypot(dx, dz);
+  if (!(chordLength > 0.01)) {
+    return [];
+  }
+  const ux = dx / chordLength;
+  const uz = dz / chordLength;
+  const transition = Math.min(70, chordLength * 0.4);
+  const handle = transition * 0.5;
+  const chordStart = {
+    x: startPoint.x + ux * transition,
+    z: startPoint.z + uz * transition,
+  };
+  const chordEnd = {
+    x: endPoint.x - ux * transition,
+    z: endPoint.z - uz * transition,
+  };
+
+  const samples: Vec2[] = [];
+  const pushPoint = (x: number, z: number): void => {
+    const last = samples[samples.length - 1];
+    if (!last || Math.hypot(x - last.x, z - last.z) > 0.05) {
+      samples.push({ x, z });
+    }
+  };
+  const addBezier = (p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2): void => {
+    const steps = Math.max(8, Math.ceil(transition / 1.5));
+    for (let i = 0; i <= steps; i += 1) {
+      const t = i / steps;
+      const mt = 1 - t;
+      const a = mt * mt * mt;
+      const b = 3 * mt * mt * t;
+      const c = 3 * mt * t * t;
+      const d = t * t * t;
+      pushPoint(
+        p0.x * a + p1.x * b + p2.x * c + p3.x * d,
+        p0.z * a + p1.z * b + p2.z * c + p3.z * d,
+      );
+    }
+  };
+
+  // 分离点：从既有线路切线方向平滑转出，接到正线直线段。
+  addBezier(
+    startJoin,
+    {
+      x: startJoin.x + startTangent.x * handle,
+      z: startJoin.z + startTangent.z * handle,
+    },
+    {
+      x: chordStart.x - ux * handle,
+      z: chordStart.z - uz * handle,
+    },
+    chordStart,
+  );
+  // 正线中段保持直线。
+  const middleLength = Math.hypot(chordEnd.x - chordStart.x, chordEnd.z - chordStart.z);
+  if (middleLength > 0.01) {
+    const steps = Math.max(1, Math.ceil(middleLength / 1.5));
+    for (let i = 1; i <= steps; i += 1) {
+      const t = i / steps;
+      pushPoint(
+        chordStart.x + (chordEnd.x - chordStart.x) * t,
+        chordStart.z + (chordEnd.z - chordStart.z) * t,
+      );
+    }
+  }
+  // 汇合点：沿既有线路切线平滑并入。
+  addBezier(
+    chordEnd,
+    {
+      x: chordEnd.x + ux * handle,
+      z: chordEnd.z + uz * handle,
+    },
+    {
+      x: endJoin.x - endTangent.x * handle,
+      z: endJoin.z - endTangent.z * handle,
+    },
+    endJoin,
+  );
+
+  return samples;
 }
 
 function normalize2(x: number, z: number): Vec2 {

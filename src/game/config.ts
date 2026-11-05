@@ -24,5 +24,10 @@ export const GAME = {
   cameraHeight: 10,
   cameraSide: -7,
   cameraAhead: 55,
+  cameraTightRadius: 180,
+  cameraTightBack: 0.1,
+  cameraTightHeight: 14,
+  cameraTightSide: 0.2,
+  cameraTightAhead: 0.75,
   coachOffset: 13,
 } as const;

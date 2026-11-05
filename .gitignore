@@ -1,4 +1,5 @@
 node_modules
 dist
 *.local
+map-points.local.json
 .DS_Store
