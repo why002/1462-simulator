@@ -301,7 +301,10 @@ export function createRouteMap(
   return { update };
 }
 
-export function createSpeedometer(canvas: HTMLCanvasElement): Speedometer {
+export function createSpeedometer(
+  canvas: HTMLCanvasElement,
+  fullScale: number,
+): Speedometer {
   const ctx = canvas.getContext('2d');
   let width = 0;
   let height = 0;
@@ -309,7 +312,8 @@ export function createSpeedometer(canvas: HTMLCanvasElement): Speedometer {
 
   const startAngle = Math.PI * 0.75;
   const sweep = Math.PI * 1.5;
-  const maxValue = 20000;
+  // 刻度只画到 20k；更高速度时指针继续旋转，可超过一整圈。
+  const dialMax = 20000;
 
   function layout(): boolean {
     const cssWidth = canvas.clientWidth;
@@ -369,7 +373,7 @@ export function createSpeedometer(canvas: HTMLCanvasElement): Speedometer {
     for (let i = 0; i <= 20; i += 1) {
       const t = i / 20;
       const angle = startAngle + sweep * t;
-      const major = i % 4 === 0;
+      const major = i % 5 === 0;
       const inner = radius - (major ? 12 : 7);
       const outer = radius - 4;
       ctx.beginPath();
@@ -386,7 +390,7 @@ export function createSpeedometer(canvas: HTMLCanvasElement): Speedometer {
     ctx.fillStyle = 'rgba(255, 210, 74, 0.85)';
     for (let i = 0; i <= 4; i += 1) {
       const value = i * 5000;
-      const angle = startAngle + sweep * (value / maxValue);
+      const angle = startAngle + sweep * (value / dialMax);
       const labelRadius = radius - 22;
       ctx.fillText(
         i === 0 ? '0' : `${i * 5}k`,
@@ -395,7 +399,7 @@ export function createSpeedometer(canvas: HTMLCanvasElement): Speedometer {
       );
     }
 
-    const needleAngle = startAngle + sweep * clamp(shown / maxValue, 0, 1);
+    const needleAngle = startAngle + sweep * (shown / dialMax);
     ctx.save();
     ctx.shadowColor = 'rgba(255, 92, 60, 0.9)';
     ctx.shadowBlur = 8;
@@ -418,7 +422,7 @@ export function createSpeedometer(canvas: HTMLCanvasElement): Speedometer {
   }
 
   function update(displaySpeed: number): void {
-    const target = clamp(displaySpeed, 0, maxValue);
+    const target = clamp(displaySpeed, 0, fullScale);
     shown += (target - shown) * 0.22;
     if (Math.abs(target - shown) < 8) {
       shown = target;

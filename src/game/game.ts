@@ -108,7 +108,10 @@ export function createGame(
   const audio = createAudio();
   updateMuteLabel(audio.muted);
   const routeMap = createRouteMap(getElement<HTMLCanvasElement>('map-canvas'), path, stations);
-  const speedometer = createSpeedometer(getElement<HTMLCanvasElement>('speedo'));
+  const speedometer = createSpeedometer(
+    getElement<HTMLCanvasElement>('speedo'),
+    GAME.vMax * GAME.speedScale,
+  );
   let lastFinishTime = 0;
   let lastFinishMax = 0;
   let shareResetTimer = 0;
@@ -126,6 +129,7 @@ export function createGame(
   let derailDirection = 1;
   let tilt = 0;
   let tiltVel = 0;
+  let brakeRamp = 0;
   let derails = 0;
   let debugView: DebugView | null = null;
   const visitedStops = new Set<string>();
@@ -422,6 +426,7 @@ export function createGame(
     derailTimer = 0;
     tilt = 0;
     tiltVel = 0;
+    brakeRamp = 0;
     derails = 0;
     debugView = null;
     visitedStops.clear();
@@ -452,6 +457,7 @@ export function createGame(
     derailTimer = 0;
     tilt = 0;
     tiltVel = 0;
+    brakeRamp = 0;
     debugView = null;
     resultElement.classList.add('hidden');
     startHint.classList.add('hidden');
@@ -776,10 +782,18 @@ export function createGame(
 
     const mass = massFactor();
     if (pressing) {
-      const acceleration = (GAME.accMax / mass) * (1 - v / GAME.vMax);
+      brakeRamp = 0;
+      // 起步牵引力从静止的 10% 平滑爬升，到 accRampSpeed 后恢复正常加速曲线。
+      const launch = Math.min(1, v / GAME.accRampSpeed);
+      const traction =
+        GAME.accStart + (1 - GAME.accStart) * launch * launch * (3 - 2 * launch);
+      const acceleration = (GAME.accMax / mass) * (1 - v / GAME.vMax) * traction;
       v += Math.max(0, acceleration) * dt;
     } else {
-      v = Math.max(0, v - (GAME.brake / mass) * dt);
+      // 制动缸压力快速建立，避免松手瞬间出现满制动。
+      brakeRamp = Math.min(1, brakeRamp + dt / GAME.brakeRampTime);
+      const bite = brakeRamp * brakeRamp * (3 - 2 * brakeRamp);
+      v = Math.max(0, v - (GAME.brake / mass) * bite * dt);
     }
 
     v = Math.min(v, GAME.vMax);

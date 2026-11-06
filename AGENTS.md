@@ -45,7 +45,10 @@ npm run preview   # http://localhost:4173/
 - 66 站 / 22 停靠 / 44 通过；等级仅 `特/一/二/三`；不含天津站；包含济南、济南南。
 - 站点位置严格使用 `s = 70 + km × 10`（km 为距上海里程），`s` 单调递增；不要在其他地方另写一套站点计数。
 - `path.length = 14,850`，`coreStart = 70`，`coreEnd = 14,700`，`realKmAt(14,700) = 1,463`。
-- 速度显示为 `v × 360`（等效 1,463 km 尺度），54 m/s 对应 19,440 km/h；物理内部仍用游戏 m/s。
+- 速度显示为 `v × 360`（等效 1,463 km 尺度），最高 `vMax = 35000 / 360 ≈ 97.22 m/s`，对应 35,000 km/h；物理内部仍用游戏 m/s。
+- 速度表盘刻度仍到 20,000 km/h；超过后指针按同一比例继续旋转（35k 时约转 1.3 圈），不要重新夹到表盘满刻度。
+- 起步牵引力不立即拉满：`traction = accStart + (1 − accStart) × smoothstep(v / accRampSpeed)`，`accStart = 0.1`、`accRampSpeed = 12 m/s`；低速段加速度从约 0.7 m/s² 逐渐增大，到 12 m/s 后恢复 `1 − v/vMax` 的常规衰减曲线。
+- 制动力也平滑建立但更快：松手后 `brakeRamp` 在 `brakeRampTime = 0.9 s` 内从 0 经 smoothstep 升到满制动（`brake / mass`，`brake = 24`），不要退回松手即满制动。
 - 济南实际经路（1462 走的弯线）控制点：分离点 `36.578613,116.903536`（km 952.5）→ 济南南（km 960）→ 济南（km 966）→ 济南东北经点 `36.709590,117.000743`（km 970）→ 济南线经点 `36.705241,116.942292`（km 975）→ 济南西经点 `36.701534,116.917067`（km 977）→ 桥南西经点 `36.690657,116.861892`（km 981.7）→ 汇合点 `36.700742,116.835851`（km 984.3）→ 黄河大桥 `36.717332,116.818034`（km 987.2）。
 - 京沪正线在游戏内取「分离点 → 汇合点」的直线方向，中段直线，两端各用约 70 m 缓和曲线接入既有线路，形成平滑道岔；**不要再把西侧经点 1/2/3 加回渲染几何**（用户要求去掉，曲率过大）。这些详细测点只保留在 `map-points.local.json` 备查。
 - 当前线路平滑 σ=50 m，最小半径约 31.5 m（济南出站后的发卡弯），这是用户要求的真实急弯；不要未经确认用增大平滑的方式“修复”。急弯相机使用 `cameraTight*` 参数切换到沿切线的追车视角。
@@ -100,7 +103,7 @@ __game.teleportKm(1463);  // 终点线前 0.5 m；再加速才结算
 __game.reset();           // 重置整局
 ```
 
-常用：`teleport(s)`、`teleportToStation(name)`、`teleportToRiver('长江'|'黄河')`、`setSpeed(54)`、`setPax(1000)`、`forceDerail()`、`setView('follow'|'train'|'station'|'door'|'overview'|'jinan'|'yangtze'|'yellow')`、`tilt`（弧度）、`derails`、`lateralAccel()`、`routeSummary`、`path`、`stations`。
+常用：`teleport(s)`、`teleportToStation(name)`、`teleportToRiver('长江'|'黄河')`、`setSpeed(97)`、`setPax(1000)`、`forceDerail()`、`setView('follow'|'train'|'station'|'door'|'overview'|'jinan'|'yangtze'|'yellow')`、`tilt`（弧度）、`derails`、`lateralAccel()`、`routeSummary`、`path`、`stations`。
 
 - 跳转不重置计时；需要新一局用 `reset()`。
 - 新增/修改调试命令时，同步更新 `README.md` 的控制台调试表。
