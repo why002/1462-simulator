@@ -17,12 +17,36 @@ export interface Effects {
   readonly windOpacity: number;
 }
 
-const SPARK_POOL = 72;
+const SPARK_POOL = 140;
 const WIND_LINES = 36;
 const COACH_PIVOT = 3.6;
+const LOCO_PIVOT = 4.1;
+const WHEEL_X = 0.75;
+const WHEEL_Y = 0.93;
+const LOCO_BOGIE_Z = 3.45;
+const COACH_BOGIE_Z = 3.35;
+const LOCO_AXLES = [-1.02, 0, 1.02];
+const COACH_AXLES = [-0.92, 0.92];
+const TILT_SPARK_GROUND = 0.3;
 const TAIL_LAMP_OFFSET = 1.08;
 const TAIL_LAMP_HEIGHT = 3.45;
 const TAIL_LAMP_DEPTH = 5.62;
+
+interface CarFrame {
+  x: number;
+  z: number;
+  fx: number;
+  fz: number;
+}
+
+interface SparkOptions {
+  lifeMin?: number;
+  lifeMax?: number;
+  scaleMin?: number;
+  scaleMax?: number;
+  gravity?: number;
+  scrape?: boolean;
+}
 
 interface Spark {
   position: THREE.Vector3;
@@ -30,7 +54,12 @@ interface Spark {
   life: number;
   maxLife: number;
   scale: number;
+  gravity: number;
+  scrape: boolean;
 }
+
+const SCRAPE_RED = new THREE.Color(0xff1e02);
+const SCRAPE_YELLOW = new THREE.Color(0xffd84a);
 
 interface WindLine {
   s: number;
@@ -65,6 +94,8 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
       life: 0,
       maxLife: 1,
       scale: 0,
+      gravity: 13,
+      scrape: false,
     });
     sparkMesh.setColorAt(i, sparkColor.setHex(0xffc056));
     sparkDummy.position.set(0, -100, 0);
@@ -78,6 +109,7 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
   sparkMesh.instanceMatrix.needsUpdate = true;
   let sparkCursor = 0;
   let sparkTimer = 0;
+  let scrapeAccum = 0;
   let aliveSparks = 0;
 
   const windPositions = new Float32Array(WIND_LINES * 6);
@@ -131,16 +163,27 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
     vx: number,
     vy: number,
     vz: number,
+    options: SparkOptions = {},
   ): void {
     const index = sparkCursor;
     const spark = sparks[index];
     sparkCursor = (sparkCursor + 1) % SPARK_POOL;
     spark.position.set(x, y, z);
     spark.velocity.set(vx, vy, vz);
-    spark.maxLife = 0.22 + rand() * 0.24;
+    const lifeMin = options.lifeMin ?? 0.22;
+    const lifeMax = options.lifeMax ?? 0.46;
+    const scaleMin = options.scaleMin ?? 0.9;
+    const scaleMax = options.scaleMax ?? 1.8;
+    spark.maxLife = lifeMin + rand() * (lifeMax - lifeMin);
     spark.life = spark.maxLife;
-    spark.scale = 0.9 + rand() * 0.9;
-    sparkColor.setHex(rand() > 0.35 ? 0xffc056 : 0xff7a33);
+    spark.scale = scaleMin + rand() * (scaleMax - scaleMin);
+    spark.gravity = options.gravity ?? 13;
+    spark.scrape = options.scrape ?? false;
+    if (spark.scrape) {
+      sparkColor.copy(SCRAPE_RED);
+    } else {
+      sparkColor.setHex(rand() > 0.35 ? 0xffc056 : 0xff7a33);
+    }
     sparkMesh.setColorAt(index, sparkColor);
     if (sparkMesh.instanceColor) {
       sparkMesh.instanceColor.needsUpdate = true;
@@ -176,26 +219,99 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
     );
   }
 
+  function carFrame(centerS: number, pivot: number): CarFrame {
+    const front = path.sampleAt(clamp(centerS + pivot, path.coreStart, path.coreEnd));
+    const rear = path.sampleAt(clamp(centerS - pivot, path.coreStart, path.coreEnd));
+    let fx = front.x - rear.x;
+    let fz = front.z - rear.z;
+    const length = Math.hypot(fx, fz) || 1;
+    fx /= length;
+    fz /= length;
+    return {
+      x: (front.x + rear.x) * 0.5,
+      z: (front.z + rear.z) * 0.5,
+      fx,
+      fz,
+    };
+  }
+
+  function emitScrapeSpark(s: number, tilt: number, intensity: number): void {
+    const loco = rand() < 0.5;
+    const frame = carFrame(s - (loco ? 0 : GAME.coachOffset), loco ? LOCO_PIVOT : COACH_PIVOT);
+    const bogieZ = (rand() < 0.5 ? -1 : 1) * (loco ? LOCO_BOGIE_Z : COACH_BOGIE_Z);
+    const axles = loco ? LOCO_AXLES : COACH_AXLES;
+    const localZ = bogieZ + axles[Math.floor(rand() * axles.length)];
+
+    // 车体向弯外倾斜，压低的一侧就是外侧车轮。
+    const lowSide = tilt >= 0 ? -1 : 1;
+    const cos = Math.cos(tilt);
+    const sin = Math.sin(tilt);
+    const localX = lowSide * WHEEL_X;
+    const rotatedX = localX * cos - WHEEL_Y * sin;
+    const contactY = localX * sin + WHEEL_Y * cos;
+    const rightX = -frame.fz;
+    const rightZ = frame.fx;
+    const outSpeed = 6 + rand() * (3 + intensity * 5);
+    const alongSpeed = (rand() - 0.5) * 3.5;
+
+    spawnSpark(
+      frame.x + rightX * rotatedX - frame.fx * localZ + (rand() - 0.5) * 0.16,
+      Math.max(contactY, TILT_SPARK_GROUND) + rand() * 0.16,
+      frame.z + rightZ * rotatedX - frame.fz * localZ + (rand() - 0.5) * 0.16,
+      rightX * lowSide * outSpeed + frame.fx * alongSpeed,
+      2.5 + rand() * (2.5 + intensity * 4),
+      rightZ * lowSide * outSpeed + frame.fz * alongSpeed,
+      {
+        lifeMin: 0.5,
+        lifeMax: 0.8,
+        scaleMin: 1.5,
+        scaleMax: 3,
+        gravity: 8,
+        scrape: true,
+      },
+    );
+  }
+
   function update(dt: number, state: EffectsState): void {
-    const { s, v, pressing, derailing, tilt } = state;
+    const { s, v, pressing, tilt } = state;
+    const scrapeIntensity = clamp(
+      (Math.abs(tilt) - GAME.wheelSparkTilt) /
+        (GAME.derailAngle - GAME.wheelSparkTilt),
+      0,
+      1,
+    );
+    if (scrapeIntensity > 0) {
+      // 倾斜越深，外侧车轮刮擦越重：30° 起，60°（脱线角）达到最大密度。
+      const rate =
+        GAME.wheelSparkRateMin +
+        (GAME.wheelSparkRateMax - GAME.wheelSparkRateMin) *
+          scrapeIntensity *
+          scrapeIntensity;
+      scrapeAccum = Math.min(scrapeAccum + rate * dt, 8);
+      while (scrapeAccum >= 1) {
+        scrapeAccum -= 1;
+        emitScrapeSpark(s, tilt, scrapeIntensity);
+      }
+    } else {
+      scrapeAccum = 0;
+    }
+
     sparkTimer -= dt;
-    const sparking =
-      (pressing && v > 6) ||
-      (!pressing && v > 24) ||
-      Math.abs(tilt) > 0.45 ||
-      derailing;
+    const sparking = (pressing && v > 6) || (!pressing && v > 24);
     if (sparking && sparkTimer <= 0) {
       sparkTimer = 0.05 + rand() * 0.08;
       if (pressing || v > 34) {
         emitPantographSparks(s);
       }
-      if (!pressing || derailing || Math.abs(tilt) > 0.45) {
+      // 重度倾斜时交由外侧车轮刮擦火花，避免内侧车轮同时喷火。
+      if (!pressing && scrapeIntensity === 0) {
         emitWheelSparks(s, -1);
         emitWheelSparks(s, 1);
       }
     }
 
     aliveSparks = 0;
+    let colorDirty = false;
     for (let i = 0; i < SPARK_POOL; i += 1) {
       const spark = sparks[i];
       if (spark.life <= 0) {
@@ -204,16 +320,29 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
       } else {
         spark.life -= dt;
         spark.position.addScaledVector(spark.velocity, dt);
-        spark.velocity.y -= 13 * dt;
+        spark.velocity.y -= spark.gravity * dt;
         const ratio = Math.max(0, spark.life / spark.maxLife);
         sparkDummy.position.copy(spark.position);
-        sparkDummy.scale.setScalar(spark.scale * (0.35 + ratio * 0.65));
+        if (spark.scrape) {
+          // 刮擦火星前段保持红色，随后转黄并缩小消失。
+          const yellowMix = clamp((1 - ratio - 0.65) / 0.35, 0, 1);
+          const eased = yellowMix * yellowMix * (3 - 2 * yellowMix);
+          sparkColor.copy(SCRAPE_RED).lerp(SCRAPE_YELLOW, eased);
+          sparkMesh.setColorAt(i, sparkColor);
+          colorDirty = true;
+          sparkDummy.scale.setScalar(spark.scale * ratio);
+        } else {
+          sparkDummy.scale.setScalar(spark.scale * (0.35 + ratio * 0.65));
+        }
         aliveSparks += 1;
       }
       sparkDummy.updateMatrix();
       sparkMesh.setMatrixAt(i, sparkDummy.matrix);
     }
     sparkMesh.instanceMatrix.needsUpdate = true;
+    if (colorDirty && sparkMesh.instanceColor) {
+      sparkMesh.instanceColor.needsUpdate = true;
+    }
 
     const windOpacity = clamp((v - 24) / 28, 0, 1) * 0.3;
     windMaterial.opacity = windOpacity;
@@ -273,6 +402,7 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
       spark.life = 0;
     }
     sparkTimer = 0;
+    scrapeAccum = 0;
     aliveSparks = 0;
     windMaterial.opacity = 0;
     for (let i = 0; i < WIND_LINES; i += 1) {
