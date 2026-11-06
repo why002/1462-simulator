@@ -43,4 +43,6 @@ export const GAME = {
   cameraTightHeight: 14,
   cameraTightAhead: 0.75,
   coachOffset: 13,
+  alightLeadTime: 0.3,
+  alightLeadMax: 12,
 } as const;

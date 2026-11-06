@@ -136,6 +136,7 @@ export function createGame(
   let derails = 0;
   let debugView: DebugView | null = null;
   const visitedStops = new Set<string>();
+  const alightSpawned = new Set<string>();
   const passedStations = new Set<string>();
   const crossedRivers = new Set<string>();
   let lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
@@ -243,7 +244,24 @@ export function createGame(
       return;
     }
 
+    const alightLead = Math.min(v * GAME.alightLeadTime, GAME.alightLeadMax);
     for (const station of stations) {
+      // 下车提前量随速度增大，让旅客在进站前离开车门滑行到站台。
+      if (
+        station.stop &&
+        station.s > midpoint &&
+        !visitedStops.has(station.name) &&
+        !alightSpawned.has(station.name) &&
+        station.s - alightLead > lastMidpoint &&
+        station.s - alightLead <= midpoint
+      ) {
+        const alighting = Math.min(pax, station.paxOut);
+        if (alighting > 0) {
+          passengerFx.spawnAlighting(s, station.side, alighting, v);
+        }
+        alightSpawned.add(station.name);
+      }
+
       if (station.s <= lastMidpoint || station.s > midpoint) {
         continue;
       }
@@ -256,7 +274,10 @@ export function createGame(
         pax -= alighted;
         const boarded = Math.min(station.paxIn, GAME.paxMax - pax);
         pax += boarded;
-        passengerFx.spawn(s, station.side, boarded, alighted);
+        passengerFx.spawnBoarding(s, station.side, boarded);
+        if (!alightSpawned.has(station.name)) {
+          passengerFx.spawnAlighting(s, station.side, alighted, v);
+        }
         showStationPopup(station, boarded, alighted);
       } else if (!passedStations.has(station.name)) {
         passedStations.add(station.name);
@@ -449,6 +470,7 @@ export function createGame(
     derails = 0;
     debugView = null;
     visitedStops.clear();
+    alightSpawned.clear();
     passedStations.clear();
     crossedRivers.clear();
     lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
@@ -483,6 +505,7 @@ export function createGame(
     startHint.classList.add('hidden');
     s = clamp(value, 0, path.coreEnd - 0.5);
     visitedStops.clear();
+    alightSpawned.clear();
     passedStations.clear();
     crossedRivers.clear();
     lastMidpoint = s - GAME.coachOffset * 0.5;
@@ -722,6 +745,7 @@ export function createGame(
   window.addEventListener('pointercancel', release);
   window.addEventListener('blur', release);
   window.addEventListener('contextmenu', (event) => event.preventDefault());
+  document.addEventListener('selectstart', (event) => event.preventDefault());
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -973,7 +997,7 @@ export function createGame(
   return {
     update(dt: number): void {
       step(dt);
-      passengerFx.update(dt);
+      passengerFx.update(dt, s, v);
       effects.update(dt, { s, v, pressing, derailing, tilt });
       audio.update(dt, v, pressing, started && !finished && !derailing);
       updateCamera(dt, false);
