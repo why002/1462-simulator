@@ -312,8 +312,8 @@ export function createSpeedometer(
 
   const startAngle = Math.PI * 0.75;
   const sweep = Math.PI * 1.5;
-  // 刻度只画到 20k；更高速度时指针继续旋转，可超过一整圈。
-  const dialMax = 20000;
+  // 刻度画到 30k；更高速度时指针继续旋转，可超过一整圈。
+  const dialMax = 30000;
 
   function layout(): boolean {
     const cssWidth = canvas.clientWidth;
@@ -370,8 +370,9 @@ export function createSpeedometer(
       ctx.stroke();
     }
 
-    for (let i = 0; i <= 20; i += 1) {
-      const t = i / 20;
+    const tickCount = dialMax / 1000;
+    for (let i = 0; i <= tickCount; i += 1) {
+      const t = i / tickCount;
       const angle = startAngle + sweep * t;
       const major = i % 5 === 0;
       const inner = radius - (major ? 12 : 7);
@@ -388,7 +389,8 @@ export function createSpeedometer(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = 'rgba(255, 210, 74, 0.85)';
-    for (let i = 0; i <= 4; i += 1) {
+    const labelCount = dialMax / 5000;
+    for (let i = 0; i <= labelCount; i += 1) {
       const value = i * 5000;
       const angle = startAngle + sweep * (value / dialMax);
       const labelRadius = radius - 22;

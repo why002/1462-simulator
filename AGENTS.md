@@ -8,7 +8,7 @@
 - 66 个三等及以上车站：22 个停靠上下客，44 个通过；四等及以下不建模。
 - 核心线路 14,630 游戏米（1 游戏米 = 100 真实米），加 70 m 起点引线和 150 m 终点缓冲，总长 14,850。
 - 玩法：按住加速、松开制动；乘客跳乘、载重；曲线超速脱线；到北京停表并记录最快用时。
-- 当前状态（2026-11-06）：M1–M9 + R1/R2 已完成并通过本地浏览器回归；济南实际经路、正线直线道岔、σ=50 发卡弯与急弯相机已更新；列车倾斜改为平衡竖直的二阶弹簧模型，脱线只由实际倾角 60° 触发、翻车动画到 90°；尚未部署。官桥站经纬度待用户确认。
+- 当前状态（2026-11-06）：M1–M9 + R1/R2 已完成并通过本地浏览器回归；济南实际经路、正线直线道岔、σ=50 发卡弯与急弯相机已更新；列车倾斜改为平衡竖直的二阶弹簧模型，脱线只由实际倾角 60° 触发、翻车动画到 90°；最高速度与过弯极限已整体 ×2（70,000 km/h 等效、`√(50R)`），`accMax = 27`、`brake = 42`，速度表盘刻度到 30,000 km/h；尚未部署。官桥站经纬度待用户确认。
 
 ## 常用命令
 
@@ -45,10 +45,11 @@ npm run preview   # http://localhost:4173/
 - 66 站 / 22 停靠 / 44 通过；等级仅 `特/一/二/三`；不含天津站；包含济南、济南南。
 - 站点位置严格使用 `s = 70 + km × 10`（km 为距上海里程），`s` 单调递增；不要在其他地方另写一套站点计数。
 - `path.length = 14,850`，`coreStart = 70`，`coreEnd = 14,700`，`realKmAt(14,700) = 1,463`。
-- 速度显示为 `v × 360`（等效 1,463 km 尺度），最高 `vMax = 35000 / 360 ≈ 97.22 m/s`，对应 35,000 km/h；物理内部仍用游戏 m/s。
-- 速度表盘刻度仍到 20,000 km/h；超过后指针按同一比例继续旋转（35k 时约转 1.3 圈），不要重新夹到表盘满刻度。
-- 起步牵引力不立即拉满：`traction = accStart + (1 − accStart) × smoothstep(v / accRampSpeed)`，`accStart = 0.1`、`accRampSpeed = 12 m/s`；低速段加速度从约 0.7 m/s² 逐渐增大，到 12 m/s 后恢复 `1 − v/vMax` 的常规衰减曲线。
-- 制动力也平滑建立但更快：松手后 `brakeRamp` 在 `brakeRampTime = 0.9 s` 内从 0 经 smoothstep 升到满制动（`brake / mass`，`brake = 24`），不要退回松手即满制动。
+- 速度显示为 `v × 360`（等效 1,463 km 尺度），最高 `vMax = 70000 / 360 ≈ 194.44 m/s`，对应 70,000 km/h；物理内部仍用游戏 m/s。
+- 速度表盘刻度画到 30,000 km/h；超过后指针按同一比例继续旋转（70k 时约转 1.8 圈），不要重新夹到表盘满刻度。
+- 起步牵引力不立即拉满：`traction = accStart + (1 − accStart) × smoothstep(v / accRampSpeed)`，`accStart = 0.1`、`accRampSpeed = 12 m/s`；常规加速度为 `(accMax / mass) × (1 − v/vMax)`，`accMax = 27 m/s²`；低速段从约 2.2 m/s² 逐渐增大，到 12 m/s 后恢复常规衰减曲线。
+- 制动力也平滑建立但更快：松手后 `brakeRamp` 在 `brakeRampTime = 0.9 s` 内从 0 经 smoothstep 升到满制动（`brake / mass`，`brake = 42`），不要退回松手即满制动。
+- 速度与过弯极限已整体 ×2；牵引和制动均比旧版更强，但最高速下的制动距离仍约为旧版的 2.2 倍，过弯前必须比旧版更早松手。
 - 济南实际经路（1462 走的弯线）控制点：分离点 `36.578613,116.903536`（km 952.5）→ 济南南（km 960）→ 济南（km 966）→ 济南东北经点 `36.709590,117.000743`（km 970）→ 济南线经点 `36.705241,116.942292`（km 975）→ 济南西经点 `36.701534,116.917067`（km 977）→ 桥南西经点 `36.690657,116.861892`（km 981.7）→ 汇合点 `36.700742,116.835851`（km 984.3）→ 黄河大桥 `36.717332,116.818034`（km 987.2）。
 - 京沪正线在游戏内取「分离点 → 汇合点」的直线方向，中段直线，两端各用约 70 m 缓和曲线接入既有线路，形成平滑道岔；**不要再把西侧经点 1/2/3 加回渲染几何**（用户要求去掉，曲率过大）。这些详细测点只保留在 `map-points.local.json` 备查。
 - 当前线路平滑 σ=50 m，最小半径约 31.5 m（济南出站后的发卡弯），这是用户要求的真实急弯；不要未经确认用增大平滑的方式“修复”。急弯相机使用 `cameraTight*` 参数切换到沿切线的追车视角。
@@ -58,13 +59,13 @@ npm run preview   # http://localhost:4173/
 
 - 车体倾斜的**平衡位置始终竖直**：弯道不提供“超高”内倾偏移。横向加速度 `a = v²·|κ|` 只产生瞬时的向弯外倾斜；低速或直线时车体收回到垂直。不要再加“低速向弯内收”的平衡角。
 - 倾斜方向永远朝弯外。`rotation.z > 0` 会抬起右侧（车身向左倾），所以方向取 `-sign(curvature)`；`curvature > 0` 表示左转。
-- 目标角：`targetTilt = -sign(κ) × clamp(atan2(v²|κ|, tiltGravity) × tiltGain, 0, tiltMax)`，`tiltGravity = 12`、`tiltGain = 1.3`、`tiltMax = 65°`。
+- 目标角：`targetTilt = -sign(κ) × clamp(atan2(v²|κ|, tiltGravity) × tiltGain, 0, tiltMax)`，`tiltGravity = 48`（旧 12；×4 使过弯极限速度 ×2）、`tiltGain = 1.3`、`tiltMax = 65°`。
 - 倾斜使用**二阶弹簧阻尼**：`tiltVel += ((targetTilt − tilt) × tiltSpring − tiltVel × tiltDamping) × dt`，`tiltSpring = 50`、`tiltDamping = 9`（阻尼比约 0.64）。当前倾角和角速度共同决定下一刻，不要退回一阶插值。加大刚度会降低阻尼比、增加过冲，因而间接降低有效过弯速度。
 - **脱线只由实际倾角触发**：`|tilt| ≥ derailAngle = 60°` 立即脱线；不要重新引入横向加速度阈值、持续时间或保持计时。旧的 `derailAcc`、`derailHold`、`overSpeedTime` 已删除。
 - 脱线动画从触发角继续向弯外翻到 `derailTilt = 90°`，`derailReset = 0.9 s` 后回轨；复位时同时清零 `tilt` 和 `tiltVel`。
-- 沿线限速牌与轨道导引带颜色由同一角阈值反推：`v = √(tiltGravity × tan(derailAngle / tiltGain) / κ) ≈ √(12.5R)`，改 `derailAngle` 会自动同步。
+- 沿线限速牌与轨道导引带颜色由同一角阈值反推：`v = √(tiltGravity × tan(derailAngle / tiltGain) / κ) ≈ √(50R)`，改 `derailAngle` 会自动同步。
 - HUD 在 `|tilt| > derailAngle × 0.82`（约 49.2°）时提示「曲线临界 · 松手减速」。
-- 实测（R≈145 m）：39 m/s 通过时倾角峰值约 57.7°；41 m/s 在约 60.1° 脱线并翻到 90°。90° 时车体绕轨面中心线旋转，车身一侧会略微压入道砟；若近看明显，再加随倾角增大的抬升。
+- 实测（R≈142–146 m）：新参数约 83–84 m/s 安全（峰值约 59–60°），85 m/s 在约 60° 脱线并翻到 90°，过弯极限约为旧版（41–42 m/s）的 2 倍。90° 时车体绕轨面中心线旋转，车身一侧会略微压入道砟；若近看明显，再加随倾角增大的抬升。
 - 若要让弹簧参数不影响过弯难度，可把脱线判定改为平衡目标角 `targetTilt`；当前仍按实际倾角判定，以保持“看到 60° 才翻车”的因果一致。
 
 ### 视觉与 UI
@@ -72,7 +73,7 @@ npm run preview   # http://localhost:4173/
 - 小地图是**北朝上**：直接使用 `path.x/z`，东=右、北=上；**只画 1462 实际经路**（66 站、列车红点、两河短线、济南曲线）和「北 ↑」。不要画京沪正线/虚线/标签，也不要加济南放大图或退回“侧向偏移 + 里程”示意图（均为用户明确要求）。
 - 京沪正线只在世界中有实体轨道（道砟、轨枕、双轨）；小地图不显示正线。
 - 站台/雨棚/站牌/候客人数按车站等级分档；44 个通过站只有短站台/站牌。
-- 追车相机 FOV = `fovBase 55` + `fovSpeedGain 8 × v/vMax` + 纵向加速度项：加速变宽、制动收窄（上限 +6° / −5°，增益 `fovAccelGain 0.7`），加速度经 `fovAccelSmoothTime 0.18 s` 平滑，用于速度感。调试视角各自固定 FOV，不受影响。
+- 追车相机 FOV = `fovBase 55` + `fovSpeedGain 8 × v/vMax` + 纵向加速度项：加速变宽、制动收窄（上限 +6° / −5°，增益 `fovAccelGain 0.7`），加速度经 `fovAccelSmoothTime 0.45 s` 平滑，用于速度感；平滑时间不要调回 0.18 s，按下加速时 FOV 会跳得太快。调试视角各自固定 FOV，不受影响。
 - 过弯时相机向弯外“甩出”：横向偏移 `cameraSwingDistance 4 m`、外倾 `cameraSwingRoll 5°`，强度为 `v²|κ| / cameraSwingAccel 9`（0–1），方向取 `sign(κ) × normal`（左弯向右外移并顺时针滚转），经 `cameraSwingSmoothTime 0.3 s` 平滑；直线回正。
 - 固定晴朗午后光照；装饰性地标（东方明珠、虎丘塔、泰山山脊、天津之眼、北京站钟楼等）暂不做。
 - 不新增外部图片/字体/服务端；贴图用 Canvas，音效用 Web Audio 合成。
@@ -105,7 +106,7 @@ __game.teleportKm(1463);  // 终点线前 0.5 m；再加速才结算
 __game.reset();           // 重置整局
 ```
 
-常用：`teleport(s)`、`teleportToStation(name)`、`teleportToRiver('长江'|'黄河')`、`setSpeed(97)`、`setPax(1000)`、`forceDerail()`、`setView('follow'|'train'|'station'|'door'|'overview'|'jinan'|'yangtze'|'yellow')`、`tilt`（弧度）、`derails`、`lateralAccel()`、`routeSummary`、`path`、`stations`。
+常用：`teleport(s)`、`teleportToStation(name)`、`teleportToRiver('长江'|'黄河')`、`setSpeed(194)`、`setPax(1000)`、`forceDerail()`、`setView('follow'|'train'|'station'|'door'|'overview'|'jinan'|'yangtze'|'yellow')`、`tilt`（弧度）、`derails`、`lateralAccel()`、`routeSummary`、`path`、`stations`。
 
 - 跳转不重置计时；需要新一局用 `reset()`。
 - 新增/修改调试命令时，同步更新 `README.md` 的控制台调试表。
@@ -117,8 +118,8 @@ __game.reset();           // 重置整局
 2. `npm run preview` 能加载，`dist/index.html` 使用 `./assets/...`。
 3. Puppeteer + Edge headless（1440×900 / 390×844）检查：无控制台报错、无横向溢出、触摸按住加速/松开制动正常。
 4. 关键断言：66/22/44、`s=70+km×10`、`path.length=14850`、`realKmAt(14700)=1463`、长江 s=3180、黄河 s=9942、`__game.teleportKm(500)` → s=5070；`routeSummary.minRadius ≈ 31.5`，`mainlineTrack` 中段为直线。
-5. 姿态/脱线回归：`__game.tilt` 为弧度；低速或停车过弯应回到约 0，高速向弯外；R≈145 m 弯 39 m/s 安全（峰值约 57.7°），41 m/s 在 ≥60° 脱线并翻到约 90°，0.9 s 后回轨且 `tilt` 归零；限速牌与导引带颜色随 `derailAngle` 同步。
-6. 玩法回归：苏州上下客、通过站提示、强制脱线、终点结算/重跑、最快纪录持久化、静音持久化；济南发卡弯处追车相机能看到完整列车。
+5. 姿态/脱线回归：`__game.tilt` 为弧度；低速或停车过弯应回到约 0，高速向弯外；R≈142–146 m 弯 83–84 m/s 安全（峰值约 59–60°），85 m/s 在 ≥60° 脱线并翻到约 90°，0.9 s 后回轨且 `tilt` 归零；限速牌与导引带颜色随 `derailAngle` 同步。
+6. 玩法回归：苏州上下客、通过站提示、强制脱线、终点结算/重跑、最快纪录持久化、静音持久化；济南发卡弯处追车相机能看到完整列车。整局按理论限速曲线约 141 s（旧参数约 264 s）；保守自动驾驶（0.8×限速、提前制动）实测 2:46.5 无脱线完赛，最高 49,728 km/h；0→100 m/s 约 7.7 s，120 m/s 制动到停车约 264 m。
 7. 性能目标：draw calls <180、三角形 <500k；当前约 104 calls / 274k 三角形（上海起点）。
 
 ## 当前待办

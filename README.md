@@ -56,7 +56,7 @@ __game.km;                // 当前已跑 km（只读）
 | `__game.teleport(s)` | 按内部坐标跳转（70 = 上海，14700 = 北京终点） |
 | `__game.teleportToStation('济南')` | 跳到指定车站中心 |
 | `__game.teleportToRiver('长江')` | 跳到长江桥；`('黄河')` 跳到黄河大桥 |
-| `__game.setSpeed(97)` | 设置游戏速度（约 0–97.2 m/s，最高约 35,000 km/h） |
+| `__game.setSpeed(194)` | 设置游戏速度（约 0–194.4 m/s，最高约 70,000 km/h） |
 | `__game.setPax(1000)` | 设置乘客数，用于测试载重 |
 | `__game.forceDerail()` | 强制触发脱线 |
 | `__game.setView('overview')` | 切换调试镜头，可选 `follow` / `train` / `station` / `door` / `overview` / `jinan` / `yangtze` / `yellow` |
