@@ -34,12 +34,12 @@ const camera = new THREE.PerspectiveCamera(
 const path = buildRoute();
 const stations = attachStations(path, STATIONS);
 
-buildWorld(scene, path, stations);
+const world = buildWorld(scene, path, stations);
 
 const train = createTrain(path);
 scene.add(train.group);
 
-const game = createGame(scene, camera, train, path, stations);
+const game = createGame(scene, camera, train, path, stations, world);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;

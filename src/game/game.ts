@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createAudio } from './audio';
+import { createAudio, type AudioEngine } from './audio';
 import { GAME } from './config';
 import { createEffects } from './effects';
 import { createPassengerFx } from './exchange';
@@ -18,6 +18,7 @@ import {
 } from './hud';
 import type { PathData, PathSample, StationOnRoute } from './types';
 import type { Train } from './train';
+import type { World } from './world';
 
 export type DebugView =
   | 'follow'
@@ -60,6 +61,7 @@ export interface GameDebug {
   readonly helpVisible: boolean;
   readonly muted: boolean;
   readonly audioRunning: boolean;
+  readonly vvvf: AudioEngine['vvvf'];
   readonly sparkCount: number;
   readonly windOpacity: number;
   displaySpeed(speed: number): number;
@@ -83,6 +85,7 @@ export function createGame(
   train: Train,
   path: PathData,
   stations: StationOnRoute[],
+  world: World,
 ): Game {
   const timerElement = getElement('timer');
   const speedElement = getElement('speed');
@@ -1006,6 +1009,9 @@ export function createGame(
     get audioRunning() {
       return audio.running;
     },
+    get vvvf() {
+      return audio.vvvf;
+    },
     get sparkCount() {
       return effects.sparkCount;
     },
@@ -1038,9 +1044,10 @@ export function createGame(
   return {
     update(dt: number): void {
       step(dt);
+      world.updateGuideBand(v);
       passengerFx.update(dt, s, v);
       effects.update(dt, { s, v, pressing, derailing, tilt });
-      audio.update(dt, v, pressing, started && !finished && !derailing);
+      audio.update(dt, v, started && !finished && !derailing, pressing);
       updateCamera(dt, false);
       updateHud();
       ledBoard.update(dt);

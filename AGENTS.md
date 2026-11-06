@@ -66,7 +66,8 @@ npm run preview   # http://localhost:4173/
 - **脱线只由实际倾角触发**：`|tilt| ≥ derailAngle = 60°` 立即脱线；不要重新引入横向加速度阈值、持续时间或保持计时。旧的 `derailAcc`、`derailHold`、`overSpeedTime` 已删除。
 - 脱线动画从触发角继续向弯外翻到 `derailTilt = 90°`，`derailReset = 0.9 s` 后回轨；复位时同时清零 `tilt` 和 `tiltVel`。
 - 倾斜超过 `wheelSparkTilt = 30°` 后，弯外侧（压低一侧）车轮喷刮擦火星；密度在 30° → `derailAngle` 间按平方增长（`wheelSparkRateMin 14` → `wheelSparkRateMax 150` 颗/秒）。单颗火星寿命内由红转黄并缩小消失；内侧车轮不喷，重度倾斜时不再触发旧的制动双侧车轮火花。粒子池 140。
-- 沿线限速牌与轨道导引带颜色由同一角阈值反推：`v = √(tiltGravity × tan(derailAngle / tiltGain) / κ) ≈ √(50R)`，改 `derailAngle` 会自动同步。
+- 沿线限速牌仍按静态曲线极限反推：`v = √(tiltGravity × tan(derailAngle / tiltGain) / κ) ≈ √(50R)`，改 `derailAngle` 会自动同步。
+- 轨道中央导引带改为**按当前车速连续渐变着色**：以各段曲率和当前速度算出平衡倾角 `atan(v²|κ| / tiltGravity) × tiltGain`，在 `0°→30°→60°` 之间对 绿→黄→红 做线性插值（30° 纯黄、60° 纯红，锚点角来自 `wheelSparkTilt` / `derailAngle`），`≥60°` 保持纯红。停车时全线为绿；每帧由 `world.updateGuideBand(v)` 刷新顶点色，速度变化小于 0.01 m/s 时跳过重算。
 - HUD 在 `|tilt| > derailAngle × 0.82`（约 49.2°）时提示「曲线临界 · 松手减速」。
 - 实测（R≈142–146 m）：新参数约 83–84 m/s 安全（峰值约 59–60°），85 m/s 在约 60° 脱线并翻到 90°，过弯极限约为旧版（41–42 m/s）的 2 倍。90° 时车体绕轨面中心线旋转，车身一侧会略微压入道砟；若近看明显，再加随倾角增大的抬升。
 - 若要让弹簧参数不影响过弯难度，可把脱线判定改为平衡目标角 `targetTilt`；当前仍按实际倾角判定，以保持“看到 60° 才翻车”的因果一致。

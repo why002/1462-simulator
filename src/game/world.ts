@@ -17,11 +17,15 @@ interface RibbonLine {
   normalZ: ArrayLike<number>;
 }
 
+export interface World {
+  updateGuideBand(speed: number): void;
+}
+
 export function buildWorld(
   scene: THREE.Scene,
   path: PathData,
   stations: StationOnRoute[],
-): void {
+): World {
   const bounds = getBounds(path);
   const sky = new THREE.Color(0xa9d0ea);
   scene.background = sky;
@@ -31,7 +35,7 @@ export function buildWorld(
   buildGround(scene, bounds);
   buildTrack(scene, path);
   buildCatenary(scene, path);
-  buildGuideBand(scene, path);
+  const updateGuideBand = buildGuideBand(scene, path);
   buildLimitSigns(scene, path);
   buildScenery(scene, path, stations);
   buildGates(scene, path);
@@ -40,6 +44,8 @@ export function buildWorld(
     buildRiver(scene, path, river);
   }
   buildMainlineTrack(scene, path);
+
+  return { updateGuideBand };
 }
 
 function addLights(scene: THREE.Scene): void {
@@ -597,7 +603,9 @@ function buildRiver(scene: THREE.Scene, path: PathData, river: RiverCrossing): v
     new THREE.BoxGeometry(8.4, 0.24, river.bridgeLength),
     deckMaterial,
   );
-  deck.position.y = 0.45;
+  // 桥面顶须低于道砟面（0.25），否则会盖住钢轨和轨枕。
+  const deckY = 0.1;
+  deck.position.y = deckY;
   group.add(deck);
 
   // 桁架用细杆合并成一格 mesh，避免实心墙挡住车窗。
@@ -610,7 +618,6 @@ function buildRiver(scene: THREE.Scene, path: PathData, river: RiverCrossing): v
   const panel = river.kind === 'yangtze' ? 8.5 : 4.3;
   const panels = Math.max(2, Math.round(river.bridgeLength / panel));
   const panelLength = river.bridgeLength / panels;
-  const deckY = 0.45;
   const parts: THREE.BufferGeometry[] = [];
   const addBar = (
     width: number,
@@ -743,12 +750,16 @@ function curveLimitSpeed(curvature: number): number {
   return Math.sqrt(limitAcc / Math.max(curvature, 1e-6));
 }
 
-function buildGuideBand(scene: THREE.Scene, path: PathData): void {
+function buildGuideBand(
+  scene: THREE.Scene,
+  path: PathData,
+): (speed: number) => void {
   const step = 4;
   const halfWidth = 0.32;
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
+  const curvatures: number[] = [];
   const green = new THREE.Color(0x4cc76d);
   const yellow = new THREE.Color(0xe5bf47);
   const red = new THREE.Color(0xdf583e);
@@ -766,10 +777,8 @@ function buildGuideBand(scene: THREE.Scene, path: PathData): void {
     );
 
     const curvature = Math.abs(sample.curvature);
-    const safeSpeed = curveLimitSpeed(curvature);
-    const ratio = safeSpeed / GAME.vMax;
-    const color = ratio >= 0.98 ? green : ratio >= 0.82 ? yellow : red;
-    colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+    curvatures.push(curvature);
+    colors.push(green.r, green.g, green.b, green.r, green.g, green.b);
 
     if (vertex > 0) {
       indices.push(vertex - 2, vertex - 1, vertex, vertex - 1, vertex + 1, vertex);
@@ -779,7 +788,8 @@ function buildGuideBand(scene: THREE.Scene, path: PathData): void {
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const colorAttribute = new THREE.Float32BufferAttribute(colors, 3);
+  geometry.setAttribute('color', colorAttribute);
   geometry.setIndex(indices);
   const mesh = new THREE.Mesh(
     geometry,
@@ -793,6 +803,47 @@ function buildGuideBand(scene: THREE.Scene, path: PathData): void {
   );
   mesh.frustumCulled = false;
   scene.add(mesh);
+
+  const curvatureValues = Float32Array.from(curvatures);
+  const colorValues = colorAttribute.array as Float32Array;
+  // 平衡倾角 0°→30°→60° 对应 绿→黄→红 的连续渐变，随当前速度逐段插值。
+  const sparkAngle = GAME.wheelSparkTilt;
+  const derailAngle = GAME.derailAngle;
+  let lastSpeed = -1;
+
+  return (speed: number): void => {
+    if (Math.abs(speed - lastSpeed) < 0.01) {
+      return;
+    }
+    lastSpeed = speed;
+    const speedSq = speed * speed;
+    for (let i = 0; i < curvatureValues.length; i += 1) {
+      const lateral = speedSq * curvatureValues[i];
+      const angle = Math.atan(lateral / GAME.tiltGravity) * GAME.tiltGain;
+      let r: number;
+      let g: number;
+      let b: number;
+      if (angle < sparkAngle) {
+        const f = angle / sparkAngle;
+        r = green.r + (yellow.r - green.r) * f;
+        g = green.g + (yellow.g - green.g) * f;
+        b = green.b + (yellow.b - green.b) * f;
+      } else {
+        const f = Math.min(1, (angle - sparkAngle) / (derailAngle - sparkAngle));
+        r = yellow.r + (red.r - yellow.r) * f;
+        g = yellow.g + (red.g - yellow.g) * f;
+        b = yellow.b + (red.b - yellow.b) * f;
+      }
+      const offset = i * 6;
+      colorValues[offset] = r;
+      colorValues[offset + 1] = g;
+      colorValues[offset + 2] = b;
+      colorValues[offset + 3] = r;
+      colorValues[offset + 4] = g;
+      colorValues[offset + 5] = b;
+    }
+    colorAttribute.needsUpdate = true;
+  };
 }
 
 function buildCatenary(scene: THREE.Scene, path: PathData): void {

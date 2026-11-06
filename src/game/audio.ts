@@ -1,8 +1,61 @@
+import { JOINT_SAMPLE_B64, JOINT_SAMPLE_RATE } from './jointSample';
+
 const MUTE_KEY = 'fast-train-1462-muted-v1';
+
+// 基频 f1 = 5 + 1.5v（Hz），显示速度 = v × 360。
+// 异步 300 Hz → 400 Hz 两段；同步 21 → 15 → 11(SHE) → 7(SHE) → 5 → 3(广域) → 1(方波)。
+// 切换点按 f1 设定，括号内为约对应的显示速度。
+const MOTOR_BASE_HZ = 5;
+const MOTOR_HZ_PER_SPEED = 1.5;
+const ASYNC_LOW_HZ = 300;
+const ASYNC_HIGH_HZ = 400;
+const ASYNC_SWITCH_HZ = 10; // ≈1,200 km/h
+const ASYNC_SWITCH_EXIT_HZ = 9.8;
+const SYNC_ENTER_HZ = 19; // 21 × 19 ≈ 400 Hz，≈3,360 km/h
+const SYNC_EXIT_HZ = 18.7;
+const SYNC_STAGE_HYSTERESIS = 0.98;
+const SYNC_STAGES = [
+  { pulses: 21, fromHz: 19, she: false }, // ≈3,360 km/h
+  { pulses: 15, fromHz: 28, she: false }, // ≈5,520
+  { pulses: 11, fromHz: 41, she: true }, // SHE ≈8,640
+  { pulses: 7, fromHz: 61, she: true }, // SHE ≈13,440
+  { pulses: 5, fromHz: 90, she: false }, // ≈20,400
+  { pulses: 3, fromHz: 117.5, she: false }, // 广域 3 分频 ≈27,000
+  { pulses: 1, fromHz: 192.5, she: false }, // 方波 ≈45,000
+] as const;
+const SYNC_STAGE_TOP = SYNC_STAGES.length - 1;
+
+// 声音由 AudioWorklet 中正弦与三角载波比较后的 A 相开关电压直接产生：
+// 载波、边带 (fs ± k·f1) 和方波谐波都来自开关过程，不再手工叠加正弦分音。
+// 用单相电压而非线电压 U-V，避免共模载波被抵消后听感变成 2fs。
+const VVVF = {
+  motorBaseHz: MOTOR_BASE_HZ,
+  motorHzPerSpeed: MOTOR_HZ_PER_SPEED,
+  asyncLowHz: ASYNC_LOW_HZ,
+  asyncHighHz: ASYNC_HIGH_HZ,
+  asyncSwitchHz: ASYNC_SWITCH_HZ,
+  asyncSwitchExitHz: ASYNC_SWITCH_EXIT_HZ,
+  syncEnterHz: SYNC_ENTER_HZ,
+  syncExitHz: SYNC_EXIT_HZ,
+  stageHysteresis: SYNC_STAGE_HYSTERESIS,
+  level: 0.1,
+  asyncAmplitudeMin: 0.45,
+  squareAmplitude: 1.35,
+} as const;
+
+export interface VvvfState {
+  readonly motorHz: number;
+  readonly carrierHz: number;
+  readonly pulses: number;
+  readonly sync: boolean;
+  readonly she: boolean;
+  readonly square: boolean;
+  readonly level: number;
+}
 
 export interface AudioEngine {
   unlock(): void;
-  update(dt: number, speed: number, pressing: boolean, active: boolean): void;
+  update(dt: number, speed: number, active: boolean, traction: boolean): void;
   horn(): void;
   chime(): void;
   crash(): void;
@@ -11,20 +64,29 @@ export interface AudioEngine {
   reset(): void;
   readonly muted: boolean;
   readonly running: boolean;
+  readonly vvvf: VvvfState;
 }
 
 export function createAudio(): AudioEngine {
   let context: AudioContext | null = null;
   let master: GainNode | null = null;
-  let motorOsc: OscillatorNode | null = null;
-  let motorSub: OscillatorNode | null = null;
-  let motorFilter: BiquadFilterNode | null = null;
-  let motorGain: GainNode | null = null;
-  let windGain: GainNode | null = null;
-  let windFilter: BiquadFilterNode | null = null;
   let noiseBuffer: AudioBuffer | null = null;
+  let jointBuffer: AudioBuffer | null = null;
+  const jointVoices = new Set<AudioBufferSourceNode>();
   let distance = 0;
   let muted = loadMuted();
+  let vfdBus: GainNode | null = null;
+  let vfdNode: AudioWorkletNode | null = null;
+  let vfdWorkletLoading = false;
+  let vvvfMotorHz: number = VVVF.motorBaseHz;
+  let vvvfCarrierHz: number = VVVF.asyncLowHz;
+  let vvvfPulses = 0;
+  let vvvfSync = false;
+  let vvvfShe = false;
+  let vvvfStage = 0;
+  let vvvfHighAsync = false;
+  let vvvfModulation = 0.55;
+  let vvvfLevel = 0;
 
   function loadMuted(): boolean {
     try {
@@ -72,90 +134,155 @@ export function createAudio(): AudioEngine {
       data[i] = Math.random() * 2 - 1;
     }
 
-    motorFilter = context.createBiquadFilter();
-    motorFilter.type = 'lowpass';
-    motorFilter.frequency.value = 240;
-    motorFilter.Q.value = 0.8;
-    motorGain = context.createGain();
-    motorGain.gain.value = 0;
-    motorOsc = context.createOscillator();
-    motorOsc.type = 'sawtooth';
-    motorOsc.frequency.value = 42;
-    motorSub = context.createOscillator();
-    motorSub.type = 'sine';
-    motorSub.frequency.value = 84;
-    const subGain = context.createGain();
-    subGain.gain.value = 0.5;
-    motorOsc.connect(motorFilter);
-    motorSub.connect(subGain).connect(motorFilter);
-    motorFilter.connect(motorGain).connect(master);
-    motorOsc.start();
-    motorSub.start();
-
-    const windSource = context.createBufferSource();
-    windSource.buffer = noiseBuffer;
-    windSource.loop = true;
-    windFilter = context.createBiquadFilter();
-    windFilter.type = 'bandpass';
-    windFilter.frequency.value = 700;
-    windFilter.Q.value = 0.6;
-    windGain = context.createGain();
-    windGain.gain.value = 0;
-    windSource.connect(windFilter).connect(windGain).connect(master);
-    windSource.start();
+    jointBuffer = decodeJointSample(context);
+    setupVvvf();
 
     if (context.state === 'suspended') {
       void context.resume();
     }
   }
 
-  function setTarget(param: AudioParam | null, value: number, time = 0.08): void {
-    if (!context || !param) {
+  function setupVvvf(): void {
+    const ctx = context;
+    if (!ctx || !master) {
       return;
     }
-    param.setTargetAtTime(value, context.currentTime, time);
+    const bus = ctx.createGain();
+    bus.gain.value = 0;
+    const smooth = ctx.createBiquadFilter();
+    smooth.type = 'lowpass';
+    smooth.frequency.value = 6500;
+    smooth.Q.value = 0.4;
+    bus.connect(smooth).connect(master);
+    vfdBus = bus;
+    void loadVvvfWorklet(ctx);
   }
 
-  function update(
-    dt: number,
-    speed: number,
-    pressing: boolean,
-    active: boolean,
-  ): void {
+  async function loadVvvfWorklet(ctx: AudioContext): Promise<void> {
+    if (vfdWorkletLoading || !ctx.audioWorklet) {
+      return;
+    }
+    vfdWorkletLoading = true;
+    try {
+      const url = new URL('vvvf-worklet.js', document.baseURI).toString();
+      await ctx.audioWorklet.addModule(url);
+      if (context !== ctx || !vfdBus) {
+        return;
+      }
+      const node = new AudioWorkletNode(ctx, 'vvvf-processor', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      node.connect(vfdBus);
+      vfdNode = node;
+      sendVvvfState();
+    } catch (error) {
+      console.error('VVVF worklet 加载失败', error);
+    }
+  }
+
+  function sendVvvfState(): void {
+    if (!vfdNode) {
+      return;
+    }
+    vfdNode.port.postMessage({
+      type: 'params',
+      baseHz: vvvfMotorHz,
+      carrierHz: vvvfCarrierHz,
+      pulses: vvvfPulses,
+      sync: vvvfSync,
+      she: vvvfShe,
+      amplitude: vvvfModulation,
+    });
+  }
+
+  function updateVvvf(speed: number, active: boolean, traction: boolean): void {
+    if (!context || !vfdBus) {
+      return;
+    }
+    const now = context.currentTime;
+    const motor = VVVF.motorBaseHz + Math.max(0, speed) * VVVF.motorHzPerSpeed;
+    vvvfMotorHz = motor;
+
+    if (!vvvfHighAsync) {
+      if (motor >= VVVF.asyncSwitchHz) {
+        vvvfHighAsync = true;
+      }
+    } else if (motor < VVVF.asyncSwitchExitHz) {
+      vvvfHighAsync = false;
+    }
+    const asyncCarrier = vvvfHighAsync ? VVVF.asyncHighHz : VVVF.asyncLowHz;
+
+    if (!vvvfSync) {
+      if (motor >= VVVF.syncEnterHz) {
+        vvvfSync = true;
+        vvvfStage = 0;
+      }
+    } else if (motor < VVVF.syncExitHz) {
+      vvvfSync = false;
+    }
+
+    if (vvvfSync) {
+      while (
+        vvvfStage < SYNC_STAGE_TOP &&
+        motor >= SYNC_STAGES[vvvfStage + 1].fromHz
+      ) {
+        vvvfStage += 1;
+      }
+      while (
+        vvvfStage > 0 &&
+        motor < SYNC_STAGES[vvvfStage].fromHz * VVVF.stageHysteresis
+      ) {
+        vvvfStage -= 1;
+      }
+      const stage = SYNC_STAGES[vvvfStage];
+      vvvfPulses = stage.pulses;
+      vvvfShe = stage.she;
+      vvvfCarrierHz = vvvfPulses * motor;
+    } else {
+      vvvfPulses = 0;
+      vvvfShe = false;
+      vvvfCarrierHz = asyncCarrier;
+    }
+
+    const square = vvvfSync && vvvfPulses === 1;
+    vvvfModulation = square
+      ? VVVF.squareAmplitude
+      : Math.min(
+          1,
+          VVVF.asyncAmplitudeMin +
+            (1 - VVVF.asyncAmplitudeMin) * Math.min(1, motor / VVVF.syncEnterHz),
+        );
+    sendVvvfState();
+
+    const motion = Math.min(1, Math.max(0, speed) / 6);
+    const target = active ? (traction ? 0.18 + 0.82 * motion : 0.55 * motion) : 0;
+    vvvfLevel = target;
+    if (vfdBus) {
+      vfdBus.gain.setTargetAtTime(target * VVVF.level, now, active ? 0.12 : 0.3);
+    }
+  }
+
+  function update(dt: number, speed: number, active: boolean, traction: boolean): void {
     if (context && context.state === 'suspended') {
       void context.resume();
     }
     if (!context) {
       return;
     }
-    const working = active && !muted;
-    const speedRatio = clamp(speed / 54, 0, 1);
-    setTarget(
-      motorOsc ? motorOsc.frequency : null,
-      40 + speed * 1.2 + (pressing ? 7 : 0),
-    );
-    setTarget(motorSub ? motorSub.frequency : null, 80 + speed * 2.4);
-    setTarget(motorFilter ? motorFilter.frequency : null, 190 + speed * 14);
-    setTarget(
-      motorGain ? motorGain.gain : null,
-      working && speed > 0.6 ? 0.05 + (pressing ? 0.035 : 0) : 0,
-      0.12,
-    );
-    setTarget(windFilter ? windFilter.frequency : null, 520 + speed * 20);
-    setTarget(
-      windGain ? windGain.gain : null,
-      working ? speedRatio * speedRatio * 0.22 : 0,
-      0.16,
-    );
-
-    if (working && speed > 2) {
+    updateVvvf(speed, active, traction);
+    if (active && !muted && speed > 2) {
       distance += speed * dt;
-      while (distance >= 18) {
-        distance -= 18;
+      while (distance >= 150) {
+        distance -= 150;
         playJoint();
       }
     } else if (!active) {
       distance = 0;
+    }
+    if (speed <= 2) {
+      stopJointVoices();
     }
   }
 
@@ -211,11 +338,27 @@ export function createAudio(): AudioEngine {
   }
 
   function playJoint(): void {
-    if (!context || muted) {
+    if (!context || !master || muted || !jointBuffer) {
       return;
     }
-    playNoise(0.07, 0.09, 1650);
-    playNoise(0.06, 0.06, 1100, 0.06);
+    const source = context.createBufferSource();
+    source.buffer = jointBuffer;
+    const gain = context.createGain();
+    gain.gain.value = 0.55;
+    source.connect(gain).connect(master);
+    jointVoices.add(source);
+    source.onended = () => {
+      jointVoices.delete(source);
+    };
+    source.start();
+  }
+
+  function stopJointVoices(): void {
+    for (const voice of jointVoices) {
+      voice.onended = null;
+      voice.stop();
+    }
+    jointVoices.clear();
   }
 
   function horn(): void {
@@ -266,11 +409,18 @@ export function createAudio(): AudioEngine {
 
   function reset(): void {
     distance = 0;
-    if (motorGain && context) {
-      motorGain.gain.setTargetAtTime(0, context.currentTime, 0.06);
-    }
-    if (windGain && context) {
-      windGain.gain.setTargetAtTime(0, context.currentTime, 0.06);
+    vvvfSync = false;
+    vvvfPulses = 0;
+    vvvfShe = false;
+    vvvfStage = 0;
+    vvvfHighAsync = false;
+    vvvfMotorHz = VVVF.motorBaseHz;
+    vvvfCarrierHz = VVVF.asyncLowHz;
+    vvvfModulation = 0.55;
+    vvvfLevel = 0;
+    vfdNode?.port.postMessage({ type: 'reset' });
+    if (context && vfdBus) {
+      vfdBus.gain.setTargetAtTime(0, context.currentTime, 0.08);
     }
   }
 
@@ -289,9 +439,31 @@ export function createAudio(): AudioEngine {
     get running() {
       return context !== null && context.state === 'running';
     },
+    get vvvf() {
+      return {
+        motorHz: vvvfMotorHz,
+        carrierHz: vvvfCarrierHz,
+        pulses: vvvfPulses,
+        sync: vvvfSync,
+        she: vvvfShe,
+        square: vvvfSync && vvvfPulses === 1,
+        level: vvvfLevel,
+      };
+    },
   };
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value));
+function decodeJointSample(context: AudioContext): AudioBuffer {
+  const binary = atob(JOINT_SAMPLE_B64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const pcm = new Int16Array(bytes.buffer);
+  const buffer = context.createBuffer(1, pcm.length, JOINT_SAMPLE_RATE);
+  const channel = buffer.getChannelData(0);
+  for (let i = 0; i < pcm.length; i += 1) {
+    channel[i] = pcm[i] / 32768;
+  }
+  return buffer;
 }
