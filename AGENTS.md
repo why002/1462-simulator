@@ -59,7 +59,7 @@ npm run preview   # http://localhost:4173/
 - 车体倾斜的**平衡位置始终竖直**：弯道不提供“超高”内倾偏移。横向加速度 `a = v²·|κ|` 只产生瞬时的向弯外倾斜；低速或直线时车体收回到垂直。不要再加“低速向弯内收”的平衡角。
 - 倾斜方向永远朝弯外。`rotation.z > 0` 会抬起右侧（车身向左倾），所以方向取 `-sign(curvature)`；`curvature > 0` 表示左转。
 - 目标角：`targetTilt = -sign(κ) × clamp(atan2(v²|κ|, tiltGravity) × tiltGain, 0, tiltMax)`，`tiltGravity = 12`、`tiltGain = 1.3`、`tiltMax = 65°`。
-- 倾斜使用**二阶弹簧阻尼**：`tiltVel += ((targetTilt − tilt) × tiltSpring − tiltVel × tiltDamping) × dt`，`tiltSpring = 50`、`tiltDamping = 7.2`（阻尼比约 0.51）。当前倾角和角速度共同决定下一刻，不要退回一阶插值。加大刚度会降低阻尼比、增加过冲，因而间接降低有效过弯速度。
+- 倾斜使用**二阶弹簧阻尼**：`tiltVel += ((targetTilt − tilt) × tiltSpring − tiltVel × tiltDamping) × dt`，`tiltSpring = 50`、`tiltDamping = 9`（阻尼比约 0.64）。当前倾角和角速度共同决定下一刻，不要退回一阶插值。加大刚度会降低阻尼比、增加过冲，因而间接降低有效过弯速度。
 - **脱线只由实际倾角触发**：`|tilt| ≥ derailAngle = 60°` 立即脱线；不要重新引入横向加速度阈值、持续时间或保持计时。旧的 `derailAcc`、`derailHold`、`overSpeedTime` 已删除。
 - 脱线动画从触发角继续向弯外翻到 `derailTilt = 90°`，`derailReset = 0.9 s` 后回轨；复位时同时清零 `tilt` 和 `tiltVel`。
 - 沿线限速牌与轨道导引带颜色由同一角阈值反推：`v = √(tiltGravity × tan(derailAngle / tiltGain) / κ) ≈ √(12.5R)`，改 `derailAngle` 会自动同步。
@@ -72,6 +72,8 @@ npm run preview   # http://localhost:4173/
 - 小地图是**北朝上**：直接使用 `path.x/z`，东=右、北=上；**只画 1462 实际经路**（66 站、列车红点、两河短线、济南曲线）和「北 ↑」。不要画京沪正线/虚线/标签，也不要加济南放大图或退回“侧向偏移 + 里程”示意图（均为用户明确要求）。
 - 京沪正线只在世界中有实体轨道（道砟、轨枕、双轨）；小地图不显示正线。
 - 站台/雨棚/站牌/候客人数按车站等级分档；44 个通过站只有短站台/站牌。
+- 追车相机 FOV = `fovBase 55` + `fovSpeedGain 8 × v/vMax` + 纵向加速度项：加速变宽、制动收窄（上限 +6° / −5°，增益 `fovAccelGain 0.7`），加速度经 `fovAccelSmoothTime 0.18 s` 平滑，用于速度感。调试视角各自固定 FOV，不受影响。
+- 过弯时相机向弯外“甩出”：横向偏移 `cameraSwingDistance 4 m`、外倾 `cameraSwingRoll 5°`，强度为 `v²|κ| / cameraSwingAccel 9`（0–1），方向取 `sign(κ) × normal`（左弯向右外移并顺时针滚转），经 `cameraSwingSmoothTime 0.3 s` 平滑；直线回正。
 - 固定晴朗午后光照；装饰性地标（东方明珠、虎丘塔、泰山山脊、天津之眼、北京站钟楼等）暂不做。
 - 不新增外部图片/字体/服务端；贴图用 Canvas，音效用 Web Audio 合成。
 

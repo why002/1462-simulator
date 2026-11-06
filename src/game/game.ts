@@ -129,6 +129,8 @@ export function createGame(
   let derailDirection = 1;
   let tilt = 0;
   let tiltVel = 0;
+  let smoothedAccel = 0;
+  let cameraSwing = 0;
   let brakeRamp = 0;
   let derails = 0;
   let debugView: DebugView | null = null;
@@ -292,18 +294,19 @@ export function createGame(
     const curvature = Math.abs(current.curvature);
     const radius = curvature > 1e-6 ? 1 / curvature : Number.POSITIVE_INFINITY;
     const tight = clamp(1 - radius / GAME.cameraTightRadius, 0, 1);
+    const swingTarget =
+      Math.sign(current.curvature) *
+      clamp((v * v * curvature) / GAME.cameraSwingAccel, 0, 1);
+    cameraSwing = snap
+      ? swingTarget
+      : cameraSwing + (swingTarget - cameraSwing) * (1 - Math.exp(-dt / GAME.cameraSwingSmoothTime));
     const cameraBack = GAME.cameraBack * (1 - GAME.cameraTightBack * tight);
     const cameraHeight = GAME.cameraHeight + GAME.cameraTightHeight * tight;
-    const cameraSide = GAME.cameraSide * (1 - GAME.cameraTightSide * tight);
     const cameraAhead = GAME.cameraAhead * (1 - GAME.cameraTightAhead * tight);
 
     const cameraS = Math.max(0, s - cameraBack);
     const cameraSample = path.sampleAt(cameraS);
-    pathPosition.set(
-      cameraSample.x + cameraSample.normalX * cameraSide,
-      cameraHeight,
-      cameraSample.z + cameraSample.normalZ * cameraSide,
-    );
+    pathPosition.set(cameraSample.x, cameraHeight, cameraSample.z);
 
     const lookS = Math.min(path.length, s + cameraAhead);
     const lookSample = path.sampleAt(lookS);
@@ -313,9 +316,9 @@ export function createGame(
     const forwardX = -Math.sin(current.heading);
     const forwardZ = -Math.cos(current.heading);
     tangentPosition.set(
-      current.x - forwardX * cameraBack + current.normalX * cameraSide,
+      current.x - forwardX * cameraBack,
       cameraHeight,
-      current.z - forwardZ * cameraBack + current.normalZ * cameraSide,
+      current.z - forwardZ * cameraBack,
     );
     tangentTarget.set(
       current.x + forwardX * cameraAhead,
@@ -326,12 +329,25 @@ export function createGame(
     desiredPosition.copy(pathPosition).lerp(tangentPosition, tight);
     desiredTarget.copy(pathTarget).lerp(tangentTarget, tight);
 
+    const swingOffset = GAME.cameraSwingDistance * cameraSwing;
+    desiredPosition.x += current.normalX * swingOffset;
+    desiredPosition.z += current.normalZ * swingOffset;
+
     const blend = snap ? 1 : 1 - Math.exp(-7 * dt);
     camera.position.lerp(desiredPosition, blend);
     smoothTarget.lerp(desiredTarget, blend);
     camera.lookAt(smoothTarget);
+    // 过弯时相机向弯外滚转，强化离心甩出的视觉感受。
+    if (cameraSwing !== 0) {
+      camera.rotateZ(-GAME.cameraSwingRoll * cameraSwing);
+    }
 
-    const targetFov = 55 + 8 * (v / GAME.vMax);
+    const accelFov = clamp(
+      smoothedAccel * GAME.fovAccelGain,
+      -GAME.fovBrakeMax,
+      GAME.fovAccelMax,
+    );
+    const targetFov = GAME.fovBase + GAME.fovSpeedGain * (v / GAME.vMax) + accelFov;
     if (Math.abs(camera.fov - targetFov) > 0.01) {
       camera.fov = targetFov;
       camera.updateProjectionMatrix();
@@ -383,6 +399,7 @@ export function createGame(
     derailing = false;
     tilt = 0;
     tiltVel = 0;
+    smoothedAccel = 0;
     processStations(path.coreEnd + GAME.coachOffset * 0.5 + 1);
     train.setTilt(0);
     train.place(s);
@@ -426,6 +443,7 @@ export function createGame(
     derailTimer = 0;
     tilt = 0;
     tiltVel = 0;
+    smoothedAccel = 0;
     brakeRamp = 0;
     derails = 0;
     debugView = null;
@@ -457,6 +475,7 @@ export function createGame(
     derailTimer = 0;
     tilt = 0;
     tiltVel = 0;
+    smoothedAccel = 0;
     brakeRamp = 0;
     debugView = null;
     resultElement.classList.add('hidden');
@@ -766,6 +785,7 @@ export function createGame(
 
     if (derailing) {
       derailTimer += dt;
+      smoothedAccel += (0 - smoothedAccel) * (1 - Math.exp(-dt / GAME.fovAccelSmoothTime));
       const targetTilt = derailDirection * GAME.derailTilt;
       tilt += (targetTilt - tilt) * Math.min(1, dt * 10);
       train.setTilt(tilt);
@@ -781,6 +801,7 @@ export function createGame(
     }
 
     const mass = massFactor();
+    let appliedAccel = 0;
     if (pressing) {
       brakeRamp = 0;
       // 起步牵引力从静止的 10% 平滑爬升，到 accRampSpeed 后恢复正常加速曲线。
@@ -788,13 +809,18 @@ export function createGame(
       const traction =
         GAME.accStart + (1 - GAME.accStart) * launch * launch * (3 - 2 * launch);
       const acceleration = (GAME.accMax / mass) * (1 - v / GAME.vMax) * traction;
-      v += Math.max(0, acceleration) * dt;
+      appliedAccel = Math.max(0, acceleration);
+      v += appliedAccel * dt;
     } else {
       // 制动缸压力快速建立，避免松手瞬间出现满制动。
       brakeRamp = Math.min(1, brakeRamp + dt / GAME.brakeRampTime);
       const bite = brakeRamp * brakeRamp * (3 - 2 * brakeRamp);
-      v = Math.max(0, v - (GAME.brake / mass) * bite * dt);
+      const delta = Math.min((GAME.brake / mass) * bite * dt, v);
+      v -= delta;
+      appliedAccel = dt > 0 ? -delta / dt : 0;
     }
+    smoothedAccel +=
+      (appliedAccel - smoothedAccel) * (1 - Math.exp(-dt / GAME.fovAccelSmoothTime));
 
     v = Math.min(v, GAME.vMax);
     s += v * dt;
