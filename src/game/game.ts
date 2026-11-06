@@ -21,6 +21,7 @@ export type DebugView =
   | 'train'
   | 'station'
   | 'door'
+  | 'rear'
   | 'overview';
 
 export interface Game {
@@ -586,6 +587,23 @@ export function createGame(
         sample.z + sample.normalZ * nearest.side * 3,
       );
       camera.fov = 50;
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    if (view === 'rear') {
+      const rearS = clamp(s - GAME.coachOffset - 5.5, path.coreStart, path.coreEnd);
+      const cameraS = clamp(rearS - 9, path.coreStart, path.coreEnd);
+      const rear = path.sampleAt(rearS);
+      const sample = path.sampleAt(cameraS);
+      debugView = view;
+      camera.position.set(
+        sample.x + sample.normalX * 5,
+        6.4,
+        sample.z + sample.normalZ * 5,
+      );
+      camera.lookAt(rear.x, 3.2, rear.z);
+      camera.fov = 48;
       camera.updateProjectionMatrix();
       return;
     }

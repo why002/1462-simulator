@@ -59,7 +59,7 @@ __game.km;                // 当前已跑 km（只读）
 | `__game.setSpeed(194)` | 设置游戏速度（约 0–194.4 m/s，最高约 70,000 km/h） |
 | `__game.setPax(1000)` | 设置乘客数，用于测试载重 |
 | `__game.forceDerail()` | 强制触发脱线 |
-| `__game.setView('overview')` | 切换调试镜头，可选 `follow` / `train` / `station` / `door` / `overview` / `jinan` / `yangtze` / `yellow` |
+| `__game.setView('overview')` | 切换调试镜头，可选 `follow` / `train` / `station` / `door` / `rear` / `overview` / `jinan` / `yangtze` / `yellow` |
 | `__game.reset()` | 重置整局，回到上海站 |
 | `__game.routeSummary.minRadius` | 当前线路的最小曲率半径（米） |
 | `__game.routeSummary.jinanBypassMinDistance` | 济南正线参考测点与比赛线路的最小距离 |

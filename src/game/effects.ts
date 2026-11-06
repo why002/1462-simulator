@@ -20,9 +20,9 @@ export interface Effects {
 const SPARK_POOL = 72;
 const WIND_LINES = 36;
 const COACH_PIVOT = 3.6;
-const TAIL_LAMP_OFFSET = 0.9;
-const TAIL_LAMP_HEIGHT = 2.02;
-const TAIL_LAMP_DEPTH = 5.7;
+const TAIL_LAMP_OFFSET = 1.08;
+const TAIL_LAMP_HEIGHT = 3.45;
+const TAIL_LAMP_DEPTH = 5.62;
 
 interface Spark {
   position: THREE.Vector3;
