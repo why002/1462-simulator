@@ -19,6 +19,10 @@ export interface Effects {
 
 const SPARK_POOL = 72;
 const WIND_LINES = 36;
+const COACH_PIVOT = 3.6;
+const TAIL_LAMP_OFFSET = 0.9;
+const TAIL_LAMP_HEIGHT = 2.02;
+const TAIL_LAMP_DEPTH = 5.7;
 
 interface Spark {
   position: THREE.Vector3;
@@ -100,7 +104,7 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
   }
 
   const glowTexture = createGlowTexture();
-  const tailMaterial = new THREE.SpriteMaterial({
+  const tailMaterial = new THREE.MeshBasicMaterial({
     map: glowTexture,
     color: 0xff3b22,
     transparent: true,
@@ -108,14 +112,17 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const tailSprites = [
-    new THREE.Sprite(tailMaterial),
-    new THREE.Sprite(tailMaterial.clone()),
+  const tailGlowGeometry = new THREE.PlaneGeometry(0.82, 0.82);
+  const tailGlows = [
+    new THREE.Mesh(tailGlowGeometry, tailMaterial),
+    new THREE.Mesh(tailGlowGeometry, tailMaterial),
   ];
-  for (const sprite of tailSprites) {
-    sprite.scale.setScalar(0.82);
-    scene.add(sprite);
+  for (const glow of tailGlows) {
+    scene.add(glow);
   }
+  const tailEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  const tailQuaternion = new THREE.Quaternion();
+  const tailLocal = new THREE.Vector3();
 
   function spawnSpark(
     x: number,
@@ -235,19 +242,30 @@ export function createEffects(scene: THREE.Scene, path: PathData): Effects {
       windGeometry.attributes.position.needsUpdate = true;
     }
 
-    const rearS = clamp(s - GAME.coachOffset - 5.3, path.coreStart, path.coreEnd);
-    const rear = path.sampleAt(rearS);
-    for (let i = 0; i < tailSprites.length; i += 1) {
+    const coachCenter = s - GAME.coachOffset;
+    const coachFront = path.sampleAt(
+      clamp(coachCenter + COACH_PIVOT, path.coreStart, path.coreEnd),
+    );
+    const coachRear = path.sampleAt(
+      clamp(coachCenter - COACH_PIVOT, path.coreStart, path.coreEnd),
+    );
+    const carX = (coachFront.x + coachRear.x) * 0.5;
+    const carZ = (coachFront.z + coachRear.z) * 0.5;
+    const carHeading = Math.atan2(
+      -(coachFront.x - coachRear.x),
+      -(coachFront.z - coachRear.z),
+    );
+    tailEuler.set(0, carHeading, tilt);
+    tailQuaternion.setFromEuler(tailEuler);
+    for (let i = 0; i < tailGlows.length; i += 1) {
       const side = i === 0 ? -1 : 1;
-      const sprite = tailSprites[i];
-      sprite.position.set(
-        rear.x + rear.normalX * side * 0.9,
-        2.02,
-        rear.z + rear.normalZ * side * 0.9,
-      );
-      const material = sprite.material as THREE.SpriteMaterial;
-      material.opacity = !pressing && v > 1 ? 0.85 : 0.5;
+      tailLocal.set(side * TAIL_LAMP_OFFSET, TAIL_LAMP_HEIGHT, TAIL_LAMP_DEPTH);
+      tailLocal.applyQuaternion(tailQuaternion);
+      const glow = tailGlows[i];
+      glow.position.set(carX + tailLocal.x, tailLocal.y, carZ + tailLocal.z);
+      glow.quaternion.copy(tailQuaternion);
     }
+    tailMaterial.opacity = !pressing && v > 1 ? 0.85 : 0.5;
   }
 
   function reset(): void {
