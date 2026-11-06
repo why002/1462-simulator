@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import {
+  mergeGeometries,
+  mergeVertices,
+} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GAME } from './config';
 import type { PathData } from './types';
 
@@ -99,34 +102,39 @@ function buildLoco(): THREE.Group {
 
   addBox(parts, 'chassis', 2.7, 0.38, 11.8, 0, 1.32, 0);
   addBox(parts, 'locoRed', 3.04, 0.55, 10.9, 0, 1.72, 0);
-  addBox(parts, 'locoRed', 3.06, 2.15, 10.9, 0, 3.02, 0);
-  addBox(parts, 'locoRoof', 2.9, 0.22, 10.7, 0, 4.24, 0);
+  addBox(parts, 'locoRed', 3.06, 2.15, 8.8, 0, 3.02, 0);
+  addBox(parts, 'locoRoof', 2.9, 0.22, 10.0, 0, 4.24, 0);
 
-  addLocoFace(parts);
+  addLocoEnd(parts, -1);
+  addLocoEnd(parts, 1);
 
   for (const side of [-1, 1] as const) {
     const x = side * 1.535;
-    addBox(parts, 'white', 0.05, 1.18, 10.7, x, 3.12, 0);
+    addBox(parts, 'white', 0.05, 1.18, 10.4, x, 3.12, 0);
 
-    addBox(parts, 'white', 0.05, 1.2, 0.8, side * 1.55, 3.12, -3.9);
-    addBox(parts, 'chassis', 0.03, 1.2, 0.03, side * 1.565, 3.12, -4.3);
-    addBox(parts, 'chassis', 0.03, 1.2, 0.03, side * 1.565, 3.12, -3.5);
-    addBox(parts, 'chassis', 0.05, 0.54, 0.42, side * 1.575, 3.43, -3.9);
-    addBox(parts, 'glass', 0.05, 0.44, 0.32, side * 1.58, 3.43, -3.9);
-    addBox(parts, 'metal', 0.04, 0.18, 0.05, side * 1.58, 3.05, -3.62);
+    for (const end of [-1, 1] as const) {
+      const doorZ = end * 3.9;
+      addBox(parts, 'white', 0.05, 1.2, 0.8, side * 1.55, 3.12, doorZ);
+      addBox(parts, 'chassis', 0.03, 1.2, 0.03, side * 1.565, 3.12, end * 4.3);
+      addBox(parts, 'chassis', 0.03, 1.2, 0.03, side * 1.565, 3.12, end * 3.5);
+      addBox(parts, 'chassis', 0.05, 0.54, 0.42, side * 1.575, 3.43, doorZ);
+      addBox(parts, 'glass', 0.05, 0.44, 0.32, side * 1.58, 3.43, doorZ);
+      addBox(parts, 'metal', 0.04, 0.18, 0.05, side * 1.58, 3.05, end * 3.62);
 
-    for (const z of [-5.0, -4.55]) {
-      addBox(parts, 'chassis', 0.05, 0.7, 0.36, side * 1.575, 3.45, z);
-      addBox(parts, 'glass', 0.05, 0.6, 0.26, side * 1.58, 3.45, z);
+      for (const z of [end * 4.95, end * 4.55]) {
+        addBox(parts, 'chassis', 0.05, 0.7, 0.36, side * 1.575, 3.45, z);
+        addBox(parts, 'glass', 0.05, 0.6, 0.26, side * 1.58, 3.45, z);
+      }
+
+      addBox(parts, 'chassis', 0.34, 0.06, 0.7, side * 1.62, 1.52, doorZ);
+      addBox(parts, 'chassis', 0.34, 0.06, 0.7, side * 1.62, 1.26, doorZ);
     }
 
-    for (const z of [-1.4, 0.3, 2.0, 3.7]) {
-      addBox(parts, 'metal', 0.05, 0.62, 1.2, side * 1.555, 3.08, z);
-      addBox(parts, 'roof', 0.06, 0.5, 1.06, side * 1.56, 3.08, z);
+    for (const z of [-1.4, 0, 1.4]) {
+      addBox(parts, 'metal', 0.05, 0.62, 1.1, side * 1.555, 3.08, z);
+      addBox(parts, 'roof', 0.06, 0.5, 0.96, side * 1.56, 3.08, z);
     }
 
-    addBox(parts, 'chassis', 0.34, 0.06, 0.7, side * 1.62, 1.52, -3.9);
-    addBox(parts, 'chassis', 0.34, 0.06, 0.7, side * 1.62, 1.26, -3.9);
     addBox(parts, 'metal', 0.05, 0.34, 0.9, x, 1.72, -4.3);
     addBox(parts, 'metal', 0.05, 0.34, 0.9, x, 1.72, 4.3);
   }
@@ -141,16 +149,26 @@ function buildLoco(): THREE.Group {
   addCoupler(parts, 1);
   addCoupler(parts, -1);
 
+  for (const z of [-5.52, 5.52]) {
+    const direction = Math.sign(z);
+    addBox(parts, 'red', 2.86, 0.3, 0.34, 0, 1.48, z + direction * 0.08);
+    addBox(parts, 'chassis', 0.32, 0.34, 0.7, 0, 1.38, z + direction * 0.35);
+  }
+
   for (const x of [-0.8, 0.8]) {
-    for (const z of [1.15, 2.95]) {
+    for (const z of [-2.95, -1.15, 1.15, 2.95]) {
       addCylinder(parts, 'red', 0.07, 0.07, 0.26, 8, x, 4.42, z);
     }
   }
 
   addMerged(group, parts);
-  addLocoSideLabel(group, 1.575, 3.2, -2.72, 1);
-  addLocoSideLabel(group, -1.575, 3.2, -2.72, -1);
-  addLocoNumberLabel(group);
+  for (const side of [-1, 1] as const) {
+    for (const z of [-2.72, 2.72]) {
+      addLocoSideLabel(group, side * 1.575, 3.2, z, side);
+    }
+  }
+  addLocoNumberLabel(group, -1);
+  addLocoNumberLabel(group, 1);
 
   return group;
 }
@@ -213,42 +231,62 @@ function buildCoach(): THREE.Group {
   return group;
 }
 
-function addLocoFace(parts: Parts): void {
-  addBox(parts, 'locoRed', 2.96, 2.32, 0.18, 0, 3.0, -5.5);
-  addBox(parts, 'locoRoof', 2.94, 0.2, 1.4, 0, 4.2, -5.05, -0.12);
-  addBox(parts, 'metal', 0.46, 0.2, 0.04, 0, 3.95, -5.59);
-  addBox(parts, 'glass', 0.4, 0.14, 0.05, 0, 3.95, -5.605);
+function addLocoEnd(parts: Parts, end: -1 | 1): void {
+  addLocoCab(parts, end);
+  addBox(parts, 'locoRoof', 2.96, 0.07, 0.28, 0, 4.12, end * 4.88);
+
+  const rake = -end * WINDSCREEN_RAKE;
+  addBox(parts, 'metal', 0.46, 0.2, 0.04, 0, 3.99, end * 5.095, rake);
+  addBox(parts, 'glass', 0.4, 0.14, 0.05, 0, 3.997, end * 5.109, rake);
 
   for (const x of [-0.58, 0.58]) {
-    addBox(parts, 'glass', 1.06, 0.68, 0.06, x, 3.56, -5.6);
+    addBox(parts, 'glass', 1.06, 0.68, 0.06, x, 3.582, end * 5.336, rake);
   }
 
-  addBox(parts, 'white', 2.9, 0.56, 0.14, 0, 2.56, -5.6);
+  addBox(parts, 'white', 2.9, 0.56, 0.1, 0, 2.56, end * 5.71);
 
   for (const x of [-0.98, 0.98]) {
-    addBox(parts, 'metal', 0.66, 0.36, 0.08, x, 2.56, -5.69);
-    addBox(parts, 'chassis', 0.56, 0.28, 0.05, x, 2.56, -5.72);
-    addBox(parts, 'headlight', 0.2, 0.2, 0.04, x - 0.13, 2.56, -5.75);
-    addCylinder(parts, 'tail', 0.06, 0.06, 0.04, 12, x + 0.16, 2.56, -5.75, Math.PI / 2);
+    addBox(parts, 'metal', 0.66, 0.36, 0.08, x, 2.56, end * 5.78);
+    addBox(parts, 'chassis', 0.56, 0.28, 0.05, x, 2.56, end * 5.81);
+    addBox(parts, 'headlight', 0.2, 0.2, 0.04, x - 0.13, 2.56, end * 5.84);
+    addCylinder(parts, 'tail', 0.06, 0.06, 0.04, 12, x + 0.16, 2.56, end * 5.84, Math.PI / 2);
   }
 
-  addBox(parts, 'metal', 0.6, 0.32, 0.06, 0, 2.56, -5.69);
-  addBox(parts, 'chassis', 0.5, 0.24, 0.04, 0, 2.56, -5.72);
+  addBox(parts, 'metal', 0.6, 0.32, 0.06, 0, 2.56, end * 5.78);
+  addBox(parts, 'chassis', 0.5, 0.24, 0.04, 0, 2.56, end * 5.81);
   for (const y of [2.49, 2.56, 2.63]) {
-    addBox(parts, 'metal', 0.46, 0.02, 0.02, 0, y, -5.75);
+    addBox(parts, 'metal', 0.46, 0.02, 0.02, 0, y, end * 5.84);
   }
 
   for (const x of [-1.26, 1.26]) {
-    addCylinder(parts, 'tail', 0.055, 0.055, 0.04, 10, x, 2.02, -5.6, Math.PI / 2);
+    addCylinder(parts, 'tail', 0.055, 0.055, 0.04, 10, x, 2.02, end * 5.72, Math.PI / 2);
   }
+}
 
-  for (const z of [-5.52, 5.52]) {
-    const direction = Math.sign(z);
-    addBox(parts, 'red', 2.86, 0.3, 0.34, 0, 1.48, z + direction * 0.08);
-    addBox(parts, 'chassis', 0.32, 0.34, 0.7, 0, 1.38, z + direction * 0.35);
+const WINDSCREEN_RAKE = Math.atan2(0.68, 1.235);
+
+function addLocoCab(parts: Parts, end: -1 | 1): void {
+  const shape = new THREE.Shape();
+  shape.moveTo(5.7, 1.85);
+  shape.lineTo(4.4, 1.85);
+  shape.lineTo(4.4, 4.095);
+  shape.lineTo(5.02, 4.095);
+  shape.lineTo(5.7, 2.86);
+  shape.closePath();
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 3.06,
+    bevelEnabled: false,
+    steps: 1,
+  });
+  if (end === -1) {
+    geometry.rotateY(Math.PI / 2);
+    geometry.translate(-1.53, 0, 0);
+  } else {
+    geometry.rotateY(-Math.PI / 2);
+    geometry.translate(1.53, 0, 0);
   }
-
-  addBox(parts, 'locoRed', 2.96, 2.2, 0.18, 0, 3.0, 5.5);
+  (parts.locoRed ??= []).push(mergeVertices(geometry));
 }
 
 function addCoachRoof(parts: Parts): void {
@@ -558,7 +596,7 @@ function addLocoSideLabel(
   group.add(plane);
 }
 
-function addLocoNumberLabel(group: THREE.Group): void {
+function addLocoNumberLabel(group: THREE.Group, end: -1 | 1): void {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 128;
@@ -580,7 +618,7 @@ function addLocoNumberLabel(group: THREE.Group): void {
     new THREE.PlaneGeometry(1.5, 0.34),
     new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false }),
   );
-  plane.position.set(0, 2.1, -5.62);
-  plane.rotation.y = Math.PI;
+  plane.position.set(0, 2.1, end * 5.72);
+  plane.rotation.y = end === -1 ? Math.PI : 0;
   group.add(plane);
 }
