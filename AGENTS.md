@@ -8,7 +8,7 @@
 - 66 个三等及以上车站：22 个停靠上下客，44 个通过；四等及以下不建模。
 - 核心线路 14,630 游戏米（1 游戏米 = 100 真实米），加 70 m 起点引线和 150 m 终点缓冲，总长 14,850。
 - 玩法：按住加速、松开制动；乘客跳乘、载重；曲线超速脱线；到北京停表并记录最快用时。
-- 当前状态（2026-11-06）：M1–M9 + R1/R2 已完成并通过本地浏览器回归；济南实际经路、正线直线道岔、σ=50 发卡弯与急弯相机已更新；尚未部署。官桥站经纬度待用户确认。
+- 当前状态（2026-11-06）：M1–M9 + R1/R2 已完成并通过本地浏览器回归；济南实际经路、正线直线道岔、σ=50 发卡弯与急弯相机已更新；列车倾斜改为平衡竖直的二阶弹簧模型，脱线只由实际倾角 60° 触发、翻车动画到 90°；尚未部署。官桥站经纬度待用户确认。
 
 ## 常用命令
 
@@ -51,6 +51,19 @@ npm run preview   # http://localhost:4173/
 - 当前线路平滑 σ=50 m，最小半径约 31.5 m（济南出站后的发卡弯），这是用户要求的真实急弯；不要未经确认用增大平滑的方式“修复”。急弯相机使用 `cameraTight*` 参数切换到沿切线的追车视角。
 - 长江跨河点 s=3180（河宽 15、桥长 68）；黄河 s=9942（河宽 10、桥长 13）；水面横向延伸到 9,000 游戏米；跨河提示为「跨越长江 · 南京长江大桥」/「跨越黄河 · 黄河大桥」。
 
+### 列车姿态与脱线
+
+- 车体倾斜的**平衡位置始终竖直**：弯道不提供“超高”内倾偏移。横向加速度 `a = v²·|κ|` 只产生瞬时的向弯外倾斜；低速或直线时车体收回到垂直。不要再加“低速向弯内收”的平衡角。
+- 倾斜方向永远朝弯外。`rotation.z > 0` 会抬起右侧（车身向左倾），所以方向取 `-sign(curvature)`；`curvature > 0` 表示左转。
+- 目标角：`targetTilt = -sign(κ) × clamp(atan2(v²|κ|, tiltGravity) × tiltGain, 0, tiltMax)`，`tiltGravity = 12`、`tiltGain = 1.3`、`tiltMax = 65°`。
+- 倾斜使用**二阶弹簧阻尼**：`tiltVel += ((targetTilt − tilt) × tiltSpring − tiltVel × tiltDamping) × dt`，`tiltSpring = 50`、`tiltDamping = 7.2`（阻尼比约 0.51）。当前倾角和角速度共同决定下一刻，不要退回一阶插值。加大刚度会降低阻尼比、增加过冲，因而间接降低有效过弯速度。
+- **脱线只由实际倾角触发**：`|tilt| ≥ derailAngle = 60°` 立即脱线；不要重新引入横向加速度阈值、持续时间或保持计时。旧的 `derailAcc`、`derailHold`、`overSpeedTime` 已删除。
+- 脱线动画从触发角继续向弯外翻到 `derailTilt = 90°`，`derailReset = 0.9 s` 后回轨；复位时同时清零 `tilt` 和 `tiltVel`。
+- 沿线限速牌与轨道导引带颜色由同一角阈值反推：`v = √(tiltGravity × tan(derailAngle / tiltGain) / κ) ≈ √(12.5R)`，改 `derailAngle` 会自动同步。
+- HUD 在 `|tilt| > derailAngle × 0.82`（约 49.2°）时提示「曲线临界 · 松手减速」。
+- 实测（R≈145 m）：39 m/s 通过时倾角峰值约 57.7°；41 m/s 在约 60.1° 脱线并翻到 90°。90° 时车体绕轨面中心线旋转，车身一侧会略微压入道砟；若近看明显，再加随倾角增大的抬升。
+- 若要让弹簧参数不影响过弯难度，可把脱线判定改为平衡目标角 `targetTilt`；当前仍按实际倾角判定，以保持“看到 60° 才翻车”的因果一致。
+
 ### 视觉与 UI
 
 - 小地图是**北朝上**：直接使用 `path.x/z`，东=右、北=上；**只画 1462 实际经路**（66 站、列车红点、两河短线、济南曲线）和「北 ↑」。不要画京沪正线/虚线/标签，也不要加济南放大图或退回“侧向偏移 + 里程”示意图（均为用户明确要求）。
@@ -73,6 +86,7 @@ npm run preview   # http://localhost:4173/
 - **未经用户明确要求，不要 `git commit`、`git push`、创建远程仓库或开启 GitHub Pages。**
 - 不要绕过网站访问控制；不要自动化抓取用户明确要求“问我要”的坐标。
 - 修改后至少运行 `npm run typecheck` 和 `npm run build`；涉及 UI 的改动要在浏览器实测，不要只凭类型检查宣布完成。
+- 手感/数值调参按用户字面要求实现，并用浏览器实测（截图或时序数据）；主动说明副作用（过弯难度、穿模、参数耦合），不要静默改平衡。
 
 ## 浏览器调试 API
 
@@ -86,7 +100,7 @@ __game.teleportKm(1463);  // 终点线前 0.5 m；再加速才结算
 __game.reset();           // 重置整局
 ```
 
-常用：`teleport(s)`、`teleportToStation(name)`、`teleportToRiver('长江'|'黄河')`、`setSpeed(54)`、`setPax(1000)`、`forceDerail()`、`setView('follow'|'train'|'station'|'door'|'overview'|'jinan'|'yangtze'|'yellow')`、`routeSummary`、`path`、`stations`。
+常用：`teleport(s)`、`teleportToStation(name)`、`teleportToRiver('长江'|'黄河')`、`setSpeed(54)`、`setPax(1000)`、`forceDerail()`、`setView('follow'|'train'|'station'|'door'|'overview'|'jinan'|'yangtze'|'yellow')`、`tilt`（弧度）、`derails`、`lateralAccel()`、`routeSummary`、`path`、`stations`。
 
 - 跳转不重置计时；需要新一局用 `reset()`。
 - 新增/修改调试命令时，同步更新 `README.md` 的控制台调试表。
@@ -98,8 +112,9 @@ __game.reset();           // 重置整局
 2. `npm run preview` 能加载，`dist/index.html` 使用 `./assets/...`。
 3. Puppeteer + Edge headless（1440×900 / 390×844）检查：无控制台报错、无横向溢出、触摸按住加速/松开制动正常。
 4. 关键断言：66/22/44、`s=70+km×10`、`path.length=14850`、`realKmAt(14700)=1463`、长江 s=3180、黄河 s=9942、`__game.teleportKm(500)` → s=5070；`routeSummary.minRadius ≈ 31.5`，`mainlineTrack` 中段为直线。
-5. 玩法回归：苏州上下客、通过站提示、强制脱线、终点结算/重跑、最快纪录持久化、静音持久化；济南发卡弯处追车相机能看到完整列车。
-6. 性能目标：draw calls <180、三角形 <500k；当前约 104 calls / 274k 三角形（上海起点）。
+5. 姿态/脱线回归：`__game.tilt` 为弧度；低速或停车过弯应回到约 0，高速向弯外；R≈145 m 弯 39 m/s 安全（峰值约 57.7°），41 m/s 在 ≥60° 脱线并翻到约 90°，0.9 s 后回轨且 `tilt` 归零；限速牌与导引带颜色随 `derailAngle` 同步。
+6. 玩法回归：苏州上下客、通过站提示、强制脱线、终点结算/重跑、最快纪录持久化、静音持久化；济南发卡弯处追车相机能看到完整列车。
+7. 性能目标：draw calls <180、三角形 <500k；当前约 104 calls / 274k 三角形（上海起点）。
 
 ## 当前待办
 

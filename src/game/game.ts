@@ -124,8 +124,8 @@ export function createGame(
   let derailing = false;
   let derailTimer = 0;
   let derailDirection = 1;
-  let overSpeedTime = 0;
   let tilt = 0;
+  let tiltVel = 0;
   let derails = 0;
   let debugView: DebugView | null = null;
   const visitedStops = new Set<string>();
@@ -184,8 +184,9 @@ export function createGame(
     const sample = path.sampleAt(s);
     derailing = true;
     derailTimer = 0;
-    derailDirection = sample.curvature < 0 ? -1 : 1;
-    overSpeedTime = 0;
+    tiltVel = 0;
+    // 离心力把车体甩向弯外侧，弯外方向与曲率符号相反。
+    derailDirection = sample.curvature < 0 ? 1 : -1;
     v = 0;
     pressing = false;
     derails += 1;
@@ -353,7 +354,7 @@ export function createGame(
         0,
         GAME.derailReset - derailTimer,
       ).toFixed(1)} s 后回轨`;
-    } else if (lateralAccel() > GAME.derailAcc * 0.82) {
+    } else if (Math.abs(tilt) > GAME.derailAngle * 0.82) {
       statusElement.textContent = `曲线临界 · ${Math.round(
         v * GAME.speedScale,
       ).toLocaleString('en-US')} km/h · 松手减速`;
@@ -376,8 +377,8 @@ export function createGame(
     finished = true;
     pressing = false;
     derailing = false;
-    overSpeedTime = 0;
     tilt = 0;
+    tiltVel = 0;
     processStations(path.coreEnd + GAME.coachOffset * 0.5 + 1);
     train.setTilt(0);
     train.place(s);
@@ -419,8 +420,8 @@ export function createGame(
     pax = GAME.paxStart;
     derailing = false;
     derailTimer = 0;
-    overSpeedTime = 0;
     tilt = 0;
+    tiltVel = 0;
     derails = 0;
     debugView = null;
     visitedStops.clear();
@@ -449,8 +450,8 @@ export function createGame(
     started = true;
     derailing = false;
     derailTimer = 0;
-    overSpeedTime = 0;
     tilt = 0;
+    tiltVel = 0;
     debugView = null;
     resultElement.classList.add('hidden');
     startHint.classList.add('hidden');
@@ -759,14 +760,14 @@ export function createGame(
 
     if (derailing) {
       derailTimer += dt;
-      const targetTilt = derailDirection * GAME.tiltMax;
+      const targetTilt = derailDirection * GAME.derailTilt;
       tilt += (targetTilt - tilt) * Math.min(1, dt * 10);
       train.setTilt(tilt);
       if (derailTimer >= GAME.derailReset) {
         derailing = false;
         derailTimer = 0;
-        overSpeedTime = 0;
         tilt = 0;
+        tiltVel = 0;
         train.setTilt(0);
         train.place(s);
       }
@@ -787,11 +788,15 @@ export function createGame(
 
     const sample = path.sampleAt(s);
     const lateral = v * v * Math.abs(sample.curvature);
-    const direction = sample.curvature < 0 ? -1 : 1;
+    // 平衡位置始终竖直：横向加速度只提供瞬时外甩力，直线或低速时车体收回垂直。
+    // rotation.z 为正会抬起右侧（车身向左倾）；弯外方向与曲率符号相反。
+    const direction = -Math.sign(sample.curvature);
     const targetTilt =
       direction *
       clamp(Math.atan2(lateral, GAME.tiltGravity) * GAME.tiltGain, 0, GAME.tiltMax);
-    tilt += (targetTilt - tilt) * Math.min(1, dt * 6);
+    // 二阶弹簧阻尼：车体惯性由当前倾角和角速度共同决定，不会瞬间贴到目标角。
+    tiltVel += ((targetTilt - tilt) * GAME.tiltSpring - tiltVel * GAME.tiltDamping) * dt;
+    tilt = clamp(tilt + tiltVel * dt, -GAME.tiltMax, GAME.tiltMax);
     train.setTilt(tilt);
 
     if (s >= path.coreEnd) {
@@ -805,13 +810,9 @@ export function createGame(
     processStations(midpoint);
     processRivers(previousMidpoint, midpoint);
 
-    if (lateral > GAME.derailAcc) {
-      overSpeedTime += dt;
-    } else {
-      overSpeedTime = 0;
-    }
-    if (overSpeedTime >= GAME.derailHold) {
+    if (Math.abs(tilt) >= GAME.derailAngle) {
       triggerDerail();
+      return;
     }
   }
 

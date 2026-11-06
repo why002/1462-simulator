@@ -723,6 +723,11 @@ function buildMainlineTrack(scene: THREE.Scene, path: PathData): void {
   }
 }
 
+function curveLimitSpeed(curvature: number): number {
+  const limitAcc = GAME.tiltGravity * Math.tan(GAME.derailAngle / GAME.tiltGain);
+  return Math.sqrt(limitAcc / Math.max(curvature, 1e-6));
+}
+
 function buildGuideBand(scene: THREE.Scene, path: PathData): void {
   const step = 4;
   const halfWidth = 0.32;
@@ -746,7 +751,7 @@ function buildGuideBand(scene: THREE.Scene, path: PathData): void {
     );
 
     const curvature = Math.abs(sample.curvature);
-    const safeSpeed = Math.sqrt(GAME.derailAcc / Math.max(curvature, 1e-6));
+    const safeSpeed = curveLimitSpeed(curvature);
     const ratio = safeSpeed / GAME.vMax;
     const color = ratio >= 0.98 ? green : ratio >= 0.82 ? yellow : red;
     colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
@@ -904,7 +909,7 @@ function buildLimitSigns(scene: THREE.Scene, path: PathData): void {
   }
 
   for (const curve of picked) {
-    const safeSpeed = Math.sqrt(GAME.derailAcc / curve.curvature);
+    const safeSpeed = curveLimitSpeed(curve.curvature);
     const display = Math.floor((safeSpeed * GAME.speedScale) / 500) * 500;
     const label = `${(display / 1000).toFixed(1)}k`;
     const signS = Math.max(path.coreStart + 20, curve.s - 90);
