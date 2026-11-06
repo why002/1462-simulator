@@ -277,7 +277,10 @@ function buildStations(
       );
     }
 
-    if (stop) {
+    const hasCanopy =
+      station.grade === '一' || station.grade === '特';
+
+    if (hasCanopy) {
       const canopyLength = Math.min(36, length - 6);
       const canopySegments = 4;
       const canopySegment = canopyLength / canopySegments;
@@ -293,6 +296,18 @@ function buildStations(
           sample.heading,
           4.7,
           0.2,
+          canopySegment + 0.04,
+        );
+
+        const fasciaOffset = station.side * 4.55;
+        pushBox(
+          fasciaMatrices,
+          sample.x + sample.normalX * fasciaOffset,
+          4.08,
+          sample.z + sample.normalZ * fasciaOffset,
+          sample.heading,
+          0.26,
+          0.45,
           canopySegment + 0.04,
         );
       }
@@ -311,18 +326,9 @@ function buildStations(
           0.18,
         );
       }
+    }
 
-      pushBox(
-        fasciaMatrices,
-        centerSample.x + centerSample.normalX * station.side * 4.55,
-        4.08,
-        centerSample.z + centerSample.normalZ * station.side * 4.55,
-        centerSample.heading,
-        0.26,
-        0.45,
-        canopyLength,
-      );
-
+    if (stop) {
       const people =
         station.grade === '特' ? 18 : station.grade === '一' ? 14 : station.grade === '二' ? 10 : 8;
       for (let i = 0; i < people; i += 1) {
@@ -351,8 +357,11 @@ function buildStations(
     scene.add(createStationSign(path, station));
 
     const signOffset = station.side * 7.0;
-    const postHeight = stop ? 3.5 : 1.6;
-    const postY = stop ? 2.67 : 1.72;
+    const signHeight = stop ? 1.35 : 1.05;
+    const signElevation = hasCanopy ? 5.05 : 3.15;
+    const postTop = signElevation - signHeight * 0.5 + 0.05;
+    const postHeight = postTop - 0.92;
+    const postY = 0.92 + postHeight * 0.5;
     pushBox(
       postMatrices,
       centerSample.x + centerSample.normalX * signOffset,
@@ -481,13 +490,13 @@ function createStationSign(path: PathData, station: StationOnRoute): THREE.Mesh 
   const texture = makeStationSignTexture(station);
   const width = station.stop ? 5.4 : 4.2;
   const height = station.stop ? 1.35 : 1.05;
+  const elevated = station.grade === '一' || station.grade === '特';
 
   const front = new THREE.PlaneGeometry(width, height);
-  front.rotateY(Math.PI / 2);
-  front.translate(0.035, 0, 0);
+  front.translate(0, 0, 0.035);
   const back = new THREE.PlaneGeometry(width, height);
-  back.rotateY(-Math.PI / 2);
-  back.translate(-0.035, 0, 0);
+  back.rotateY(Math.PI);
+  back.translate(0, 0, -0.035);
   const merged = mergeGeometries([front, back], false);
   if (!merged) {
     throw new Error('Failed to build station sign geometry');
@@ -500,7 +509,7 @@ function createStationSign(path: PathData, station: StationOnRoute): THREE.Mesh 
   const offset = station.side * 7.0;
   mesh.position.set(
     sample.x + sample.normalX * offset,
-    station.stop ? 5.05 : 3.15,
+    elevated ? 5.05 : 3.15,
     sample.z + sample.normalZ * offset,
   );
   mesh.rotation.y = sample.heading;
@@ -509,45 +518,51 @@ function createStationSign(path: PathData, station: StationOnRoute): THREE.Mesh 
 
 function makeStationSignTexture(station: StationOnRoute): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 144;
+  canvas.width = 1024;
+  canvas.height = 288;
   const context = canvas.getContext('2d');
   if (!context) {
     throw new Error('2D canvas is unavailable');
   }
 
-  const gradeLabel =
-    station.grade === '特'
-      ? '特等站'
-      : station.grade === '一'
-        ? '一等站'
-        : station.grade === '二'
-          ? '二等站'
-          : '三等站';
+  const borderColor =
+    station.grade === '一' || station.grade === '特' ? '#ffd24a' : '#ffffff';
+  const fullBorder = station.grade === '二' || station.grade === '特';
+  const band = 24;
 
   context.fillStyle = station.stop ? '#0c3b28' : '#33443e';
-  context.fillRect(0, 0, 512, 144);
-  context.strokeStyle = station.stop ? '#ffd24a' : '#b7c2bc';
-  context.lineWidth = 8;
-  context.strokeRect(4, 4, 504, 136);
+  context.fillRect(0, 0, 1024, 288);
 
+  context.fillStyle = borderColor;
+  context.fillRect(0, 0, 1024, band);
+  context.fillRect(0, 288 - band, 1024, band);
+  if (fullBorder) {
+    context.fillRect(0, 0, band, 288);
+    context.fillRect(1024 - band, 0, band, 288);
+  }
+
+  const fontSize = station.name.length > 5 ? 118 : 150;
   context.fillStyle = '#ffffff';
-  context.font = `700 ${station.name.length > 5 ? 54 : 64}px "Microsoft YaHei", "Noto Sans SC", sans-serif`;
+  context.font = `700 ${fontSize}px "Microsoft YaHei", "Noto Sans SC", sans-serif`;
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText(station.name, 256, 60);
-
-  context.fillStyle = station.stop ? '#ffd24a' : '#c4cec8';
-  context.font = '500 24px "Microsoft YaHei", "Noto Sans SC", sans-serif';
-  context.fillText(
-    `${gradeLabel} · ${station.stop ? '1462 停靠' : '通过'}`,
-    256,
-    116,
+  const characters = [...station.name];
+  const gap = 30;
+  const characterWidths = characters.map((character) =>
+    context.measureText(character).width,
   );
+  const totalWidth =
+    characterWidths.reduce((sum, value) => sum + value, 0) +
+    gap * (characters.length - 1);
+  let cursor = 512 - totalWidth * 0.5;
+  characters.forEach((character, index) => {
+    context.fillText(character, cursor + characterWidths[index] * 0.5, 144);
+    cursor += characterWidths[index] + gap;
+  });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = 16;
   return texture;
 }
 
