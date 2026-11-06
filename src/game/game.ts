@@ -3,10 +3,16 @@ import { createAudio } from './audio';
 import { GAME } from './config';
 import { createEffects } from './effects';
 import { createPassengerFx } from './exchange';
+import { stationEnglishName } from './stations';
 import {
+  createLedBoard,
+  createResultMap,
   createRouteMap,
+  createSpeedProfile,
   createSpeedometer,
   loadBest,
+  recordSpeed,
+  resetSpeedProfile,
   saveBest,
   shareText,
 } from './hud';
@@ -97,6 +103,8 @@ export function createGame(
   const resultBestElement = getElement('result-best');
   const resultNewElement = getElement('result-new');
   const resultEggElement = getElement('result-egg');
+  const resultAvgElement = getElement('result-avg');
+  const resultMapMaxElement = getElement('result-map-max');
   const shareButton = getElement<HTMLButtonElement>('share');
   const helpButton = getElement<HTMLButtonElement>('help');
   const helpOverlay = getElement('help-overlay');
@@ -109,6 +117,17 @@ export function createGame(
   const audio = createAudio();
   updateMuteLabel(audio.muted);
   const routeMap = createRouteMap(getElement<HTMLCanvasElement>('map-canvas'), path, stations);
+  const resultMap = createResultMap(
+    getElement<HTMLCanvasElement>('result-map'),
+    path,
+    stations,
+  );
+  const speedProfile = createSpeedProfile(path.coreStart, path.coreEnd, 10);
+  const ledBoard = createLedBoard(
+    getElement<HTMLCanvasElement>('led-canvas'),
+    getElement('led-window'),
+    getElement('led-text'),
+  );
   const speedometer = createSpeedometer(
     getElement<HTMLCanvasElement>('speedo'),
     GAME.vMax * GAME.speedScale,
@@ -388,6 +407,14 @@ export function createGame(
     )} / ${GAME.realKm.toLocaleString('en-US')} km`;
 
     const next = stations.find((station) => station.s > s + 0.5);
+    const nextStop = stations.find(
+      (station) => station.stop && station.s > s + 0.5,
+    );
+    ledBoard.setText(
+      nextStop
+        ? `下一站：${nextStop.name}站　　终点站：北京站　　next station: ${stationEnglishName(nextStop)} Station　　terminal station: Beijing Station`
+        : '终点站：北京站　　terminal station: Beijing Station',
+    );
     const remaining = stations.filter(
       (station) => station.stop && station.s >= s - 1,
     ).length;
@@ -436,6 +463,10 @@ export function createGame(
     resultMaxElement.textContent = `${Math.round(maxV * GAME.speedScale).toLocaleString(
       'en-US',
     )} km/h`;
+    const averageSpeed = time > 0 ? (GAME.realKm * 3600) / time : 0;
+    resultAvgElement.textContent = `${Math.round(averageSpeed).toLocaleString(
+      'en-US',
+    )} km/h`;
     resultBestElement.textContent = formatTime(
       isNewBest ? time : (previousBest?.time ?? time),
     );
@@ -448,6 +479,10 @@ export function createGame(
           )} 分`
         : '';
     resultElement.classList.remove('hidden');
+    resultMapMaxElement.textContent = `0 – ${Math.round(
+      Math.max(speedProfile.max, 0) * GAME.speedScale,
+    ).toLocaleString('en-US')} km/h`;
+    resultMap.show(speedProfile);
     startHint.classList.add('hidden');
     audio.fanfare();
   }
@@ -482,6 +517,8 @@ export function createGame(
     passengerFx.reset();
     effects.reset();
     audio.reset();
+    resetSpeedProfile(speedProfile);
+    resultMap.clear();
     train.setTilt(0);
     train.place(s);
     resultElement.classList.add('hidden');
@@ -513,6 +550,8 @@ export function createGame(
     passengerFx.reset();
     effects.reset();
     audio.reset();
+    resetSpeedProfile(speedProfile);
+    resultMap.clear();
     train.setTilt(0);
     train.place(s);
     updateCamera(0, true);
@@ -865,8 +904,10 @@ export function createGame(
       (appliedAccel - smoothedAccel) * (1 - Math.exp(-dt / GAME.fovAccelSmoothTime));
 
     v = Math.min(v, GAME.vMax);
+    const previousS = s;
     s += v * dt;
     maxV = Math.max(maxV, v);
+    recordSpeed(speedProfile, previousS, s, v);
 
     const sample = path.sampleAt(s);
     const lateral = v * v * Math.abs(sample.curvature);
@@ -1002,6 +1043,7 @@ export function createGame(
       audio.update(dt, v, pressing, started && !finished && !derailing);
       updateCamera(dt, false);
       updateHud();
+      ledBoard.update(dt);
     },
   };
 }

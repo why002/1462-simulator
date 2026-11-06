@@ -17,18 +17,33 @@
     <div id="app">
       <canvas id="scene"></canvas>
       <div id="hud">
-        <header class="topbar">
-          <div class="brand">
-            <span class="badge">京沪线</span>
-            <span class="train-no">1462</span>
-            <span class="route">上海 → 北京</span>
+        <div class="top-stack">
+          <div class="progress">
+            <div class="progress-labels">
+              <span id="distance">已跑 0 / 1,463 km</span>
+              <span id="status">下一站 上海西（通过） · 剩余 22 站</span>
+            </div>
+            <div class="progress-rail"><div id="progress-fill"></div></div>
           </div>
-          <div class="top-right">
-            <button id="help" class="icon-button" type="button" aria-label="玩法说明">?</button>
-            <div class="pax-chip">乘客 <b id="pax">240</b></div>
-            <div class="timer"><span id="timer">0:00.0</span></div>
-          </div>
-        </header>
+          <header class="topbar">
+            <div class="brand">
+              <span class="badge">京沪线</span>
+              <span class="train-no">1462</span>
+              <span class="route">上海 → 北京</span>
+            </div>
+            <div class="next-stop-led" aria-live="polite">
+              <div class="led-window" id="led-window">
+                <canvas class="led-canvas" id="led-canvas"></canvas>
+                <span class="led-announce" id="led-text">下一站：昆山站　终点站：北京站　next station: Kunshan Station　terminal station: Beijing Station</span>
+              </div>
+            </div>
+            <div class="top-right">
+              <button id="help" class="icon-button" type="button" aria-label="玩法说明">?</button>
+              <div class="pax-chip">乘客 <b id="pax">240</b></div>
+              <div class="timer"><span id="timer">0:00.0</span></div>
+            </div>
+          </header>
+        </div>
 
         <div class="center-hint" id="start-hint">
           <div class="hint-main">按住加速</div>
@@ -53,13 +68,6 @@
         </aside>
 
         <footer class="bottombar">
-          <div class="progress">
-            <div class="progress-labels">
-              <span id="distance">已跑 0 / 1,463 km</span>
-              <span id="status">下一站 上海西（通过） · 剩余 22 站</span>
-            </div>
-            <div class="progress-rail"><div id="progress-fill"></div></div>
-          </div>
           <div class="dash">
             <div class="speed">
               <canvas id="speedo" class="speedo" width="136" height="136"></canvas>
@@ -109,16 +117,36 @@
             <h1>抵达北京站</h1>
             <div class="result-time" id="result-time">0:00.0</div>
             <div class="result-new hidden" id="result-new">新纪录</div>
-            <div class="result-row">
-              <span>历史最快</span><strong id="result-best">—</strong>
+            <div class="result-body">
+              <div class="result-map-panel">
+                <div class="result-map-head">
+                  <span>本局线路 · 速度着色</span>
+                  <span>北 ↑</span>
+                </div>
+                <canvas id="result-map"></canvas>
+                <div class="result-map-legend">
+                  <span>慢</span>
+                  <i class="result-map-bar"></i>
+                  <span>快</span>
+                  <b id="result-map-max">0 – 0 km/h</b>
+                </div>
+              </div>
+              <div class="result-stats">
+                <div class="result-row">
+                  <span>历史最快</span><strong id="result-best">—</strong>
+                </div>
+                <div class="result-row">
+                  <span>最高等效时速</span><strong id="result-max">0 km/h</strong>
+                </div>
+                <div class="result-row">
+                  <span>平均等效时速</span><strong id="result-avg">0 km/h</strong>
+                </div>
+                <div class="result-row">
+                  <span>全程</span><strong>1,463 km</strong>
+                </div>
+                <div class="result-egg" id="result-egg"></div>
+              </div>
             </div>
-            <div class="result-row">
-              <span>最高等效时速</span><strong id="result-max">0 km/h</strong>
-            </div>
-            <div class="result-row">
-              <span>全程</span><strong>1,463 km</strong>
-            </div>
-            <div class="result-egg" id="result-egg"></div>
             <div class="result-actions">
               <button id="retry" type="button">再跑一次</button>
               <button id="share" type="button" class="ghost">分享成绩</button>

@@ -3,3 +3,4 @@ dist
 *.local
 map-points.local.json
 .DS_Store
+__pycache__/

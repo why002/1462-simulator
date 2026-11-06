@@ -82,6 +82,31 @@ const ROWS: StationRow[] = [
   ['北京', 1463, '特', true, 39.902802, 116.427048],
 ];
 
+const STATION_EN_NAMES: Record<string, string> = {
+  上海: 'Shanghai',
+  昆山: 'Kunshan',
+  苏州: 'Suzhou',
+  无锡: 'Wuxi',
+  常州: 'Changzhou',
+  南京: 'Nanjing',
+  滁州北: 'Chuzhou North',
+  明光: 'Mingguang',
+  蚌埠: 'Bengbu',
+  宿州: 'Suzhou',
+  徐州: 'Xuzhou',
+  枣庄西: 'Zaozhuang West',
+  兖州: 'Yanzhou',
+  济南: 'Jinan',
+  德州: 'Dezhou',
+  沧州: 'Cangzhou',
+  青县: 'Qingxian',
+  静海: 'Jinghai',
+  天津西: 'Tianjin West',
+  广阳: 'Guangyang',
+  北京丰台: 'Beijing Fengtai',
+  北京: 'Beijing',
+};
+
 const PAX_BY_GRADE: Record<Grade, readonly [number, number]> = {
   特: [42, 34],
   一: [34, 28],
@@ -117,6 +142,9 @@ function validate(list: Station[]): void {
     if (i > 0 && station.km <= list[i - 1].km) {
       throw new Error(`Station km must increase at ${station.name}`);
     }
+    if (station.stop && !STATION_EN_NAMES[station.name]) {
+      throw new Error(`Missing English station name for ${station.name}`);
+    }
     if (
       !Number.isFinite(station.lat) ||
       !Number.isFinite(station.lon) ||
@@ -143,6 +171,10 @@ validate(STATIONS);
 export { STATIONS };
 export const STATION_COUNT = STATIONS.length;
 export const STOP_COUNT = STATIONS.filter((station) => station.stop).length;
+
+export function stationEnglishName(station: Station): string {
+  return STATION_EN_NAMES[station.name] ?? station.name;
+}
 
 export function stationS(station: Station): number {
   return GAME.coreStart + station.km * GAME.metersPerKm;
