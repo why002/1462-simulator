@@ -282,11 +282,17 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.station-popup {
+.station-popup-layer {
   position: absolute;
   z-index: 2;
-  top: 31%;
-  left: 50%;
+  inset: 0 0 38% 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.station-popup {
   min-width: 210px;
   padding: 13px 26px 12px;
   border: 1px solid rgba(255, 210, 74, 0.5);
@@ -294,16 +300,23 @@ body {
   background: rgba(7, 24, 18, 0.9);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   text-align: center;
-  pointer-events: none;
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.94);
-  transition: opacity 0.22s ease, transform 0.22s ease;
+  transition: opacity 0.22s ease;
+  /* 模糊层不能带 transform：Chromium 会按未变换的位置取样，导致模糊与方框错位。 */
   backdrop-filter: blur(8px);
 }
 
 .station-popup.show {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
+}
+
+.popup-inner {
+  transform: scale(0.94);
+  transition: transform 0.22s ease;
+}
+
+.station-popup.show .popup-inner {
+  transform: scale(1);
 }
 
 .popup-kicker {
