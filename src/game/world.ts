@@ -36,7 +36,6 @@ export function buildWorld(
   buildTrack(scene, path);
   buildCatenary(scene, path);
   const updateGuideBand = buildGuideBand(scene, path);
-  buildLimitSigns(scene, path);
   buildScenery(scene, path, stations);
   buildGates(scene, path);
   buildStations(scene, path, stations);
@@ -745,11 +744,6 @@ function buildMainlineTrack(scene: THREE.Scene, path: PathData): void {
   }
 }
 
-function curveLimitSpeed(curvature: number): number {
-  const limitAcc = GAME.tiltGravity * Math.tan(GAME.derailAngle / GAME.tiltGain);
-  return Math.sqrt(limitAcc / Math.max(curvature, 1e-6));
-}
-
 function buildGuideBand(
   scene: THREE.Scene,
   path: PathData,
@@ -954,92 +948,6 @@ function buildCatenaryPoleGeometry(): THREE.BufferGeometry {
   return merged;
 }
 
-function buildLimitSigns(scene: THREE.Scene, path: PathData): void {
-  const candidates: Array<{ s: number; curvature: number }> = [];
-  for (let s = path.coreStart + 160; s <= path.coreEnd - 200; s += 8) {
-    const curvature = Math.abs(path.sampleAt(s).curvature);
-    if (curvature > 1 / 700) {
-      candidates.push({ s, curvature });
-    }
-  }
-  candidates.sort((a, b) => b.curvature - a.curvature);
-
-  const picked: Array<{ s: number; curvature: number }> = [];
-  for (const candidate of candidates) {
-    if (picked.every((item) => Math.abs(item.s - candidate.s) > 1600)) {
-      picked.push(candidate);
-    }
-    if (picked.length === 4) {
-      break;
-    }
-  }
-
-  for (const curve of picked) {
-    const safeSpeed = curveLimitSpeed(curve.curvature);
-    const display = Math.floor((safeSpeed * GAME.speedScale) / 500) * 500;
-    const label = `${(display / 1000).toFixed(1)}k`;
-    const signS = Math.max(path.coreStart + 20, curve.s - 90);
-    const sample = path.sampleAt(signS);
-    const side = sample.curvature > 0 ? -1 : 1;
-    const offset = side * 11;
-    const group = new THREE.Group();
-    group.position.set(
-      sample.x + sample.normalX * offset,
-      0,
-      sample.z + sample.normalZ * offset,
-    );
-    group.rotation.y = sample.heading;
-
-    const post = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 4.4, 0.16),
-      new THREE.MeshStandardMaterial({ color: 0x7d8784, roughness: 0.55, metalness: 0.4 }),
-    );
-    post.position.y = 2.2;
-    group.add(post);
-
-    const board = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.6, 1.3),
-      new THREE.MeshBasicMaterial({ map: makeLimitSignTexture(label) }),
-    );
-    board.position.y = 4.5;
-    group.add(board);
-
-    scene.add(group);
-  }
-}
-
-function makeLimitSignTexture(label: string): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 256;
-  const context = canvas.getContext('2d');
-  if (!context) {
-    throw new Error('2D canvas is unavailable');
-  }
-
-  context.fillStyle = '#13251f';
-  context.fillRect(0, 0, 512, 256);
-  context.strokeStyle = '#ffd24a';
-  context.lineWidth = 10;
-  context.strokeRect(5, 5, 502, 246);
-  context.fillStyle = '#e8f0e8';
-  context.font = '600 34px "Microsoft YaHei", "Noto Sans SC", sans-serif';
-  context.textAlign = 'center';
-  context.textBaseline = 'middle';
-  context.fillText('曲线限速', 256, 52);
-  context.fillStyle = '#ffd24a';
-  context.font = '800 92px "Microsoft YaHei", "Noto Sans SC", sans-serif';
-  context.fillText(label, 256, 145);
-  context.fillStyle = '#b7c8c0';
-  context.font = '500 22px "Microsoft YaHei", "Noto Sans SC", sans-serif';
-  context.fillText('等效 1463 km 尺度', 256, 220);
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
-  return texture;
-}
-
 function buildScenery(
   scene: THREE.Scene,
   path: PathData,
@@ -1051,18 +959,72 @@ function buildScenery(
       (river) => Math.abs(s - river.s) < river.bridgeLength * 0.5 + 90,
     );
 
-  buildFields(scene, path, rand, nearRiver);
-  buildTrees(scene, path, rand, nearRiver);
+  buildFields(scene, path, stations, rand, nearRiver);
+  buildTrees(scene, path, stations, rand, nearRiver);
   buildBuildings(scene, path, stations, rand, nearRiver);
+}
+
+const GRADE_RADIUS: Record<StationOnRoute['grade'], number> = {
+  特: 520,
+  一: 430,
+  二: 320,
+  三: 200,
+};
+
+const GRADE_URBAN_PRESSURE: Record<StationOnRoute['grade'], number> = {
+  特: 1,
+  一: 0.78,
+  二: 0.5,
+  三: 0.14,
+};
+
+function urbanPressure(s: number, stations: StationOnRoute[]): number {
+  let pressure = 0;
+  for (const station of stations) {
+    const radius = GRADE_RADIUS[station.grade];
+    const distance = Math.abs(s - station.s);
+    if (distance >= radius) {
+      continue;
+    }
+    const falloff = 1 - distance / radius;
+    const weight = GRADE_URBAN_PRESSURE[station.grade] * (station.stop ? 1 : 0.8);
+    pressure = Math.max(pressure, falloff * falloff * weight);
+  }
+  return pressure;
+}
+
+function isClearOfTrack(
+  path: PathData,
+  x: number,
+  z: number,
+  clearance: number,
+): boolean {
+  const threshold = clearance * clearance;
+  for (let i = 0; i < path.x.length; i += 2) {
+    const dx = path.x[i] - x;
+    const dz = path.z[i] - z;
+    if (dx * dx + dz * dz < threshold) {
+      return false;
+    }
+  }
+  for (const point of path.mainlineTrack) {
+    const dx = point.x - x;
+    const dz = point.z - z;
+    if (dx * dx + dz * dz < threshold) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function buildFields(
   scene: THREE.Scene,
   path: PathData,
+  stations: StationOnRoute[],
   rand: () => number,
   nearRiver: (s: number) => boolean,
 ): void {
-  const count = 460;
+  const count = 780;
   const mesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1, 0.06, 1),
     new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }),
@@ -1074,10 +1036,13 @@ function buildFields(
   let placed = 0;
   let attempts = 0;
 
-  while (placed < count && attempts < count * 8) {
+  while (placed < count && attempts < count * 10) {
     attempts += 1;
     const s = path.coreStart + rand() * (path.coreEnd - path.coreStart);
     if (nearRiver(s)) {
+      continue;
+    }
+    if (rand() < urbanPressure(s, stations) * 0.95) {
       continue;
     }
     const width = 24 + rand() * 70;
@@ -1085,11 +1050,14 @@ function buildFields(
     const sample = path.sampleAt(s);
     const side = rand() < 0.5 ? -1 : 1;
     const offset = width * 0.5 + 10 + rand() * 220;
-    dummy.position.set(
-      sample.x + sample.normalX * side * offset,
-      0.02,
-      sample.z + sample.normalZ * side * offset,
-    );
+    const x = sample.x + sample.normalX * side * offset;
+    const z = sample.z + sample.normalZ * side * offset;
+    if (!isClearOfTrack(path, x, z, Math.hypot(width, depth) * 0.5 + 8)) {
+      continue;
+    }
+    // 田块之间避免共面闪烁；底面始终高于地面（地面位于 y = -0.05）。
+    const lift = 0.03 + rand() * 0.08;
+    dummy.position.set(x, lift, z);
     dummy.rotation.set(0, sample.heading + (rand() - 0.5) * 0.35, 0);
     dummy.scale.set(width, 1, depth);
     dummy.updateMatrix();
@@ -1111,10 +1079,11 @@ function buildFields(
 function buildTrees(
   scene: THREE.Scene,
   path: PathData,
+  stations: StationOnRoute[],
   rand: () => number,
   nearRiver: (s: number) => boolean,
 ): void {
-  const count = 900;
+  const count = 1400;
   const trunkGeometry = new THREE.CylinderGeometry(0.24, 0.32, 2.4, 6);
   trunkGeometry.translate(0, 1.2, 0);
   const foliageGeometry = new THREE.ConeGeometry(1.7, 4.6, 6);
@@ -1136,21 +1105,25 @@ function buildTrees(
   let placed = 0;
   let attempts = 0;
 
-  while (placed < count && attempts < count * 8) {
+  while (placed < count && attempts < count * 10) {
     attempts += 1;
     const s = path.coreStart + rand() * (path.coreEnd - path.coreStart);
     if (nearRiver(s)) {
+      continue;
+    }
+    if (rand() < urbanPressure(s, stations) * 0.85) {
       continue;
     }
     const sample = path.sampleAt(s);
     const side = rand() < 0.5 ? -1 : 1;
     const offset = 18 + rand() * 260;
     const scale = 0.7 + rand() * 1.2;
-    dummy.position.set(
-      sample.x + sample.normalX * side * offset,
-      0,
-      sample.z + sample.normalZ * side * offset,
-    );
+    const x = sample.x + sample.normalX * side * offset;
+    const z = sample.z + sample.normalZ * side * offset;
+    if (!isClearOfTrack(path, x, z, scale * 1.9 + 10)) {
+      continue;
+    }
+    dummy.position.set(x, 0, z);
     dummy.rotation.set(0, rand() * Math.PI * 2, 0);
     dummy.scale.set(scale, scale, scale);
     dummy.updateMatrix();
@@ -1195,35 +1168,54 @@ function buildBuildings(
   const wallPalette = [0xe7e0d1, 0xd8d0bf, 0xc9b8a4, 0xc1ccd0, 0xd8c6ab, 0xb8b8ac];
   const roofPalette = [0x737b7b, 0x8a4f3e, 0x5d686b, 0x6d6259, 0x4f5d62];
 
+  const gradeProfile: Record<
+    StationOnRoute['grade'],
+    { density: number; spread: number; heightRange: number }
+  > = {
+    特: { density: 32, spread: 300, heightRange: 30 },
+    一: { density: 20, spread: 235, heightRange: 20 },
+    二: { density: 8.5, spread: 175, heightRange: 11 },
+    三: { density: 2.6, spread: 125, heightRange: 7 },
+  };
+
   for (const station of stations) {
-    const base =
-      station.grade === '特' ? 18 : station.grade === '一' ? 13 : station.grade === '二' ? 8 : 4;
-    const density = base * (station.stop ? 1 : 0.65);
-    const spread =
-      station.grade === '特' ? 240 : station.grade === '一' ? 190 : station.grade === '二' ? 150 : 110;
-    const count = Math.round(density * (0.75 + rand() * 0.5));
+    const profile = gradeProfile[station.grade];
+    const count = Math.round(
+      profile.density * (station.stop ? 1 : 0.7) * (0.8 + rand() * 0.4),
+    );
     for (let i = 0; i < count; i += 1) {
-      const s = clamp(station.s + (rand() - 0.5) * spread * 2, path.coreStart, path.coreEnd);
-      if (nearRiver(s)) {
-        continue;
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const s = clamp(
+          station.s + (rand() - 0.5) * profile.spread * 2,
+          path.coreStart,
+          path.coreEnd,
+        );
+        if (nearRiver(s)) {
+          continue;
+        }
+        const sample = path.sampleAt(s);
+        const side = rand() < 0.5 ? -1 : 1;
+        const width = 6 + rand() * 12;
+        const depth = 6 + rand() * 12;
+        const height = 4 + rand() * profile.heightRange;
+        const offset = Math.max(width, depth) * 0.5 + 42 + rand() * 190;
+        const x = sample.x + sample.normalX * side * offset;
+        const z = sample.z + sample.normalZ * side * offset;
+        if (!isClearOfTrack(path, x, z, Math.hypot(width, depth) * 0.54 + 12)) {
+          continue;
+        }
+        buildings.push({
+          x,
+          z,
+          rotation: sample.heading + (rand() - 0.5) * 0.7,
+          width,
+          depth,
+          height,
+          wallColor: wallPalette[Math.floor(rand() * wallPalette.length)],
+          roofColor: roofPalette[Math.floor(rand() * roofPalette.length)],
+        });
+        break;
       }
-      const sample = path.sampleAt(s);
-      const side = rand() < 0.5 ? -1 : 1;
-      const width = 6 + rand() * 12;
-      const depth = 6 + rand() * 12;
-      const height =
-        4 + rand() * (station.grade === '特' ? 19 : station.grade === '一' ? 14 : 9);
-      const offset = Math.max(width, depth) * 0.5 + 42 + rand() * 190;
-      buildings.push({
-        x: sample.x + sample.normalX * side * offset,
-        z: sample.z + sample.normalZ * side * offset,
-        rotation: sample.heading + (rand() - 0.5) * 0.7,
-        width,
-        depth,
-        height,
-        wallColor: wallPalette[Math.floor(rand() * wallPalette.length)],
-        roofColor: roofPalette[Math.floor(rand() * roofPalette.length)],
-      });
     }
   }
 
