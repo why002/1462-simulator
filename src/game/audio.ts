@@ -2,26 +2,26 @@ import { JOINT_SAMPLE_B64, JOINT_SAMPLE_RATE } from './jointSample';
 
 const MUTE_KEY = 'fast-train-1462-muted-v1';
 
-// 基频 f1 = 5 + 1.5v（Hz），显示速度 = v × 360。
+// 基频 f1 = 0.9v（Hz），显示速度 = v × 360，即 f1 = 显示速度 / 400。
 // 异步 300 Hz → 400 Hz 两段；同步 21 → 15 → 11(SHE) → 7(SHE) → 5 → 3(广域) → 1(方波)。
 // 切换点按 f1 设定，括号内为约对应的显示速度。
-const MOTOR_BASE_HZ = 5;
-const MOTOR_HZ_PER_SPEED = 1.5;
+const MOTOR_BASE_HZ = 0;
+const MOTOR_HZ_PER_SPEED = 0.9;
 const ASYNC_LOW_HZ = 300;
 const ASYNC_HIGH_HZ = 400;
-const ASYNC_SWITCH_HZ = 10; // ≈1,200 km/h
-const ASYNC_SWITCH_EXIT_HZ = 9.8;
-const SYNC_ENTER_HZ = 19; // 21 × 19 ≈ 400 Hz，≈3,360 km/h
+const ASYNC_SWITCH_HZ = 12; // ≈4,800 km/h
+const ASYNC_SWITCH_EXIT_HZ = 11.76;
+const SYNC_ENTER_HZ = 19; // 21 × 19 ≈ 400 Hz，≈7,600 km/h
 const SYNC_EXIT_HZ = 18.7;
 const SYNC_STAGE_HYSTERESIS = 0.98;
 const SYNC_STAGES = [
-  { pulses: 21, fromHz: 19, she: false }, // ≈3,360 km/h
-  { pulses: 15, fromHz: 28, she: false }, // ≈5,520
-  { pulses: 11, fromHz: 41, she: true }, // SHE ≈8,640
-  { pulses: 7, fromHz: 61, she: true }, // SHE ≈13,440
-  { pulses: 5, fromHz: 90, she: false }, // ≈20,400
-  { pulses: 3, fromHz: 117.5, she: false }, // 广域 3 分频 ≈27,000
-  { pulses: 1, fromHz: 192.5, she: false }, // 方波 ≈45,000
+  { pulses: 21, fromHz: 19, she: false }, // ≈7,600 km/h
+  { pulses: 15, fromHz: 28.8, she: false }, // ≈11,520
+  { pulses: 11, fromHz: 36, she: true }, // SHE ≈14,400
+  { pulses: 7, fromHz: 45.6, she: true }, // SHE ≈18,240
+  { pulses: 5, fromHz: 56.4, she: false }, // ≈22,560
+  { pulses: 3, fromHz: 75, she: false }, // 广域 3 分频 ≈30,000
+  { pulses: 1, fromHz: 112.5, she: false }, // 方波 ≈45,000
 ] as const;
 const SYNC_STAGE_TOP = SYNC_STAGES.length - 1;
 
@@ -257,7 +257,13 @@ export function createAudio(): AudioEngine {
     sendVvvfState();
 
     const motion = Math.min(1, Math.max(0, speed) / 6);
-    const target = active ? (traction ? 0.18 + 0.82 * motion : 0.55 * motion) : 0;
+    // 松手即再生制动：保留 VVVF 声，响度为牵引的 85%，约 2 m/s 以下淡出。
+    const regen = Math.min(1, Math.max(0, speed) / 2);
+    const target = active
+      ? traction
+        ? 0.18 + 0.82 * motion
+        : 0.85 * regen
+      : 0;
     vvvfLevel = target;
     if (vfdBus) {
       vfdBus.gain.setTargetAtTime(target * VVVF.level, now, active ? 0.12 : 0.3);
@@ -374,8 +380,8 @@ export function createAudio(): AudioEngine {
     if (!context || muted) {
       return;
     }
-    playTone(880, 0.45, 0.04, 'sine');
-    playTone(660, 0.6, 0.035, 'sine', 0.14);
+    playTone(880, 0.45, 0.4, 'sine');
+    playTone(660, 0.6, 0.3, 'sine', 0.14);
   }
 
   function crash(): void {
