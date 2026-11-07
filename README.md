@@ -91,6 +91,19 @@ __game.setPax(1000);
 __game.teleportKm(0);
 ```
 
+## 全局自动跑脚本
+
+`tools/auto_run.js` 是浏览器控制台用的自动驾驶脚本：从上海站自动起步，按线路曲率提前减速、通过全部弯道，到北京站停表。打开游戏页面，把文件内容粘贴到 DevTools Console 回车即可，脚本会立即重置并开跑。
+
+```js
+__autoRun.stop();                      // 停止并松手
+__autoRun.status();                    // 用时、速度、目标限速、倾角、脱线次数
+__autoRun.start({ reset: false });     // 从当前位置继续
+__autoRun.start({ tiltLimitDeg: 50 }); // 更激进；默认 44°，越接近 60° 越容易脱线
+```
+
+默认按 44° 目标倾角（约等于 0.8×极限速度）规划，实际倾角到 52° 会强制制动保护；更激进可调高 `tiltLimitDeg`。脚本只派发空格键事件，不修改游戏内部状态；想先加载而不自动开跑，可在粘贴前执行 `window.__autoRunManual = true`。脚本中的线路/车辆参数与 `src/game/config.ts` 保持一致，改游戏调参后需同步。
+
 ## LED 点阵字库编辑
 
 LED 字形保存在 `src/game/ledFont.ts`，共 81 个实际用到的字符、12 行 0/1 点阵。可用本地 Python 编辑器可视化修改并写回：

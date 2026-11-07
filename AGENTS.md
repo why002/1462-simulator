@@ -34,6 +34,7 @@ npm run preview   # http://localhost:4173/
 - `src/game/hud.ts`：LED 状态、车头朝上的前方小地图、结算速度图、速度表、站名弹层、最快纪录、分享。
 - `src/game/ledFont.ts`：LED 用的 12 行 0/1 点阵字库（81 个实际用到的字符），可直接改字形；每字后由跑马灯自动补 1 列空列。
 - `tools/led_editor.py`：本地 tkinter 点阵字库编辑器，12 行网格可点击/拖动编辑、整体上下左右平移（方向键也可）、顶部跑马灯预览，保存写回 `ledFont.ts`；`--check` 只校验。
+- `tools/auto_run.js`：浏览器控制台自动跑脚本，按曲率限速和制动剖面全程自动驾驶（默认 44° 目标倾角、52° 倾角保护），粘贴即从上海站开跑。
 - `src/game/audio.ts` / `effects.ts` / `exchange.ts`：合成音效、火花/风线、乘客跳乘动画。
 - `src/game/types.ts` / `config.ts`：接口与参数。
 - `README.md`：运行方式、玩法、**浏览器控制台调试命令**（新增调试命令时同步更新）。
