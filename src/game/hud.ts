@@ -1076,37 +1076,217 @@ export function formatDuration(seconds: number): string {
   return `${minutes}:${rest.toFixed(1).padStart(4, '0')}`;
 }
 
-export async function shareText(text: string, url: string): Promise<'shared' | 'copied' | 'failed'> {
-  if (typeof navigator.share === 'function') {
-    try {
-      await navigator.share({ title: '京沪神车 1462', text, url });
-      return 'shared';
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        return 'failed';
-      }
-    }
+export interface ResultShareData {
+  timeText: string;
+  bestTimeText: string;
+  maxSpeedText: string;
+  averageSpeedText: string;
+  distanceText: string;
+  mapMaxText: string;
+  eggText: string;
+  isNewBest: boolean;
+  mapCanvas: HTMLCanvasElement;
+  fileName: string;
+}
+
+export function downloadResultImage(data: ResultShareData): boolean {
+  const width = 1200;
+  const height = 1200;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return false;
   }
-  const full = `${text}\n${url}`;
+
+  const fontSans = '"Noto Sans SC", "Microsoft YaHei", sans-serif';
+  const fontDigits =
+    '"Bahnschrift", "DIN Alternate", ui-monospace, monospace';
+  const ink = '#eef8f2';
+  const muted = '#a7b8b1';
+  const accent = '#ffd24a';
+  const green = '#3ddc84';
+  const leftX = 92;
+  const leftW = 520;
+  const rightX = 648;
+  const rightW = 460;
+  const bodyTop = 470;
+  const panelH = 570;
+  const rowGap = 92;
+
+  const background = ctx.createLinearGradient(0, 0, width, height);
+  background.addColorStop(0, '#0c2018');
+  background.addColorStop(0.55, '#081711');
+  background.addColorStop(1, '#050f0b');
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, width, height);
+
+  const glow = ctx.createRadialGradient(
+    width * 0.78,
+    100,
+    10,
+    width * 0.78,
+    100,
+    620,
+  );
+  glow.addColorStop(0, 'rgba(61, 220, 132, 0.16)');
+  glow.addColorStop(1, 'rgba(61, 220, 132, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, height);
+
+  roundedRect(ctx, 2, 2, width - 4, height - 4, 34);
+  ctx.strokeStyle = 'rgba(255, 210, 74, 0.3)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const text = (
+    value: string,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    align: CanvasTextAlign = 'left',
+    weight = 400,
+    family = fontSans,
+  ): void => {
+    ctx.font = `${weight} ${size}px ${family}`;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(value, x, y);
+  };
+
+  text('京沪线 · 1462', width / 2, 92, 26, green, 'center', 600);
+  text('抵达北京站', width / 2, 160, 54, ink, 'center', 700);
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(255, 210, 74, 0.22)';
+  ctx.shadowBlur = 42;
+  text(data.timeText, width / 2, 300, 148, accent, 'center', 800, fontDigits);
+  ctx.restore();
+
+  if (data.isNewBest) {
+    ctx.font = `800 22px ${fontSans}`;
+    const badgeWidth = ctx.measureText('新纪录').width + 48;
+    roundedRect(ctx, width / 2 - badgeWidth / 2, 362, badgeWidth, 42, 21);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    text('新纪录', width / 2, 383, 22, '#181206', 'center', 800);
+  }
+
+  const rows: Array<[string, string]> = [
+    ['历史最快', data.bestTimeText],
+    ['最高等效时速', data.maxSpeedText],
+    ['平均等效时速', data.averageSpeedText],
+    ['全程', data.distanceText],
+  ];
+  rows.forEach(([label, value], index) => {
+    const y = bodyTop + 74 + index * rowGap;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(leftX, y - 32);
+    ctx.lineTo(leftX + leftW, y - 32);
+    ctx.stroke();
+    text(label, leftX, y, 24, muted, 'left', 500);
+    text(value, leftX + leftW, y, 30, ink, 'right', 700);
+  });
+
+  if (data.eggText) {
+    text(data.eggText, leftX, bodyTop + 462, 24, green, 'left', 500);
+  }
+  text(
+    `速度表按真实 ${data.distanceText} 尺度等效显示`,
+    leftX,
+    bodyTop + 522,
+    17,
+    muted,
+    'left',
+    400,
+  );
+
+  roundedRect(ctx, rightX, bodyTop, rightW, panelH, 20);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  text('本局线路 · 速度着色', rightX + 22, bodyTop + 28, 18, muted, 'left', 500);
+  text('北 ↑', rightX + rightW - 22, bodyTop + 28, 18, muted, 'right', 500);
+
+  const mapX = rightX + 16;
+  const mapY = bodyTop + 50;
+  const mapW = rightW - 32;
+  const mapH = panelH - 112;
+  roundedRect(ctx, mapX, mapY, mapW, mapH, 12);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.fill();
+
+  const map = data.mapCanvas;
+  if (map.width > 0 && map.height > 0) {
+    const scale = Math.min(mapW / map.width, mapH / map.height);
+    const drawW = map.width * scale;
+    const drawH = map.height * scale;
+    ctx.drawImage(
+      map,
+      mapX + (mapW - drawW) / 2,
+      mapY + (mapH - drawH) / 2,
+      drawW,
+      drawH,
+    );
+  }
+
+  const legendY = bodyTop + panelH - 34;
+  text('慢', rightX + 22, legendY, 16, muted, 'left', 500);
+  const barX = rightX + 52;
+  const barW = 210;
+  const bar = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+  bar.addColorStop(0, '#4ca8ff');
+  bar.addColorStop(0.35, '#3ddc84');
+  bar.addColorStop(0.7, '#ffd24a');
+  bar.addColorStop(1, '#ff5c3c');
+  roundedRect(ctx, barX, legendY - 4, barW, 8, 4);
+  ctx.fillStyle = bar;
+  ctx.fill();
+  text('快', barX + barW + 10, legendY, 16, muted, 'left', 500);
+  text(
+    data.mapMaxText,
+    rightX + rightW - 22,
+    legendY,
+    16,
+    ink,
+    'right',
+    600,
+  );
+
+  const footerLineY = 1118;
+  const footerY = 1152;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(leftX, footerLineY);
+  ctx.lineTo(width - leftX, footerLineY);
+  ctx.stroke();
+  text(`上海 → 北京 · ${data.distanceText}`, leftX, footerY, 20, muted, 'left', 500);
+  text('《京沪神车 1462》', width - leftX, footerY, 20, muted, 'right', 500);
+
+  let url: string;
   try {
-    await navigator.clipboard.writeText(full);
-    return 'copied';
+    url = canvas.toDataURL('image/png');
   } catch {
-    // Fall through to the legacy textarea copy path.
+    return false;
   }
-  try {
-    const area = document.createElement('textarea');
-    area.value = full;
-    area.style.position = 'fixed';
-    area.style.opacity = '0';
-    document.body.appendChild(area);
-    area.select();
-    const ok = document.execCommand('copy');
-    area.remove();
-    return ok ? 'copied' : 'failed';
-  } catch {
-    return 'failed';
-  }
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = data.fileName;
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  return true;
 }
 
 const SPEED_GRADIENT: Array<{ at: number; rgb: [number, number, number] }> = [
@@ -1151,6 +1331,24 @@ function drawCanvasText(
   ctx.strokeText(text, x, y);
   ctx.fillStyle = color;
   ctx.fillText(text, x, y);
+}
+
+function roundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+): void {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + width, y, x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x, y + height, r);
+  ctx.arcTo(x, y + height, x, y, r);
+  ctx.arcTo(x, y, x + width, y, r);
+  ctx.closePath();
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {

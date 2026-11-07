@@ -10,11 +10,11 @@ import {
   createRouteMap,
   createSpeedProfile,
   createSpeedometer,
+  downloadResultImage,
   loadBest,
   recordSpeed,
   resetSpeedProfile,
   saveBest,
-  shareText,
 } from './hud';
 import type { PathData, PathSample, StationOnRoute } from './types';
 import type { Train } from './train';
@@ -120,11 +120,8 @@ export function createGame(
   const audio = createAudio();
   updateMuteLabel(audio.muted);
   const routeMap = createRouteMap(getElement<HTMLCanvasElement>('map-canvas'), path, stations);
-  const resultMap = createResultMap(
-    getElement<HTMLCanvasElement>('result-map'),
-    path,
-    stations,
-  );
+  const resultMapCanvas = getElement<HTMLCanvasElement>('result-map');
+  const resultMap = createResultMap(resultMapCanvas, path, stations);
   const speedProfile = createSpeedProfile(path.coreStart, path.coreEnd, 10);
   const ledBoard = createLedBoard(
     getElement<HTMLCanvasElement>('led-canvas'),
@@ -136,7 +133,6 @@ export function createGame(
     GAME.vMax * GAME.speedScale,
   );
   let lastFinishTime = 0;
-  let lastFinishMax = 0;
   let shareResetTimer = 0;
 
   let s: number = path.coreStart;
@@ -456,7 +452,6 @@ export function createGame(
     train.setTilt(0);
     train.place(s);
     lastFinishTime = time;
-    lastFinishMax = maxV;
     const previousBest = loadBest();
     const isNewBest = previousBest === null || time < previousBest.time;
     if (isNewBest) {
@@ -801,17 +796,26 @@ export function createGame(
     retryButton.blur();
   });
 
-  shareButton.addEventListener('click', async (event) => {
+  shareButton.addEventListener('click', (event) => {
     event.stopPropagation();
     shareButton.disabled = true;
-    const text = `我在《京沪神车 1462》里用 ${formatTime(
-      lastFinishTime,
-    )} 跑完上海→北京 1,463 km，最高等效时速 ${Math.round(
-      lastFinishMax * GAME.speedScale,
-    ).toLocaleString('en-US')} km/h。`;
-    const outcome = await shareText(text, window.location.href);
-    shareButton.textContent =
-      outcome === 'shared' ? '已分享' : outcome === 'copied' ? '已复制' : '分享成绩';
+    const totalSeconds = Math.floor(lastFinishTime);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const fileName = `jinghu-1462-${minutes}m${String(seconds).padStart(2, '0')}s.png`;
+    const exported = downloadResultImage({
+      timeText: resultTimeElement.textContent ?? formatTime(lastFinishTime),
+      bestTimeText: resultBestElement.textContent ?? '—',
+      maxSpeedText: resultMaxElement.textContent ?? '—',
+      averageSpeedText: resultAvgElement.textContent ?? '—',
+      distanceText: `${GAME.realKm.toLocaleString('en-US')} km`,
+      mapMaxText: resultMapMaxElement.textContent ?? '',
+      eggText: resultEggElement.textContent ?? '',
+      isNewBest: !resultNewElement.classList.contains('hidden'),
+      mapCanvas: resultMapCanvas,
+      fileName,
+    });
+    shareButton.textContent = exported ? '已导出' : '导出失败';
     shareButton.disabled = false;
     window.clearTimeout(shareResetTimer);
     shareResetTimer = window.setTimeout(() => {
