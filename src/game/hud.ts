@@ -17,7 +17,7 @@ export interface SpeedProfile {
 }
 
 export interface SpeedMap {
-  show(profile: SpeedProfile): void;
+  show(profile: SpeedProfile, derailPoints?: readonly number[]): void;
   clear(): void;
 }
 
@@ -641,6 +641,7 @@ export function createResultMap(
   let offsetX = 0;
   let offsetY = 0;
   let lastProfile: SpeedProfile | null = null;
+  let lastDerails: readonly number[] = [];
 
   let minX = Infinity;
   let maxX = -Infinity;
@@ -874,6 +875,28 @@ export function createResultMap(
     }
   }
 
+  function drawDerailMarkers(points: readonly number[]): void {
+    if (!ctx) {
+      return;
+    }
+    const size = compact() ? 4.2 : 5.2;
+    ctx.lineCap = 'round';
+    for (const value of points) {
+      const point = routePoint(value);
+      ctx.beginPath();
+      ctx.moveTo(point.x - size, point.y - size);
+      ctx.lineTo(point.x + size, point.y + size);
+      ctx.moveTo(point.x + size, point.y - size);
+      ctx.lineTo(point.x - size, point.y + size);
+      ctx.strokeStyle = 'rgba(5, 22, 15, 0.9)';
+      ctx.lineWidth = compact() ? 3.6 : 4.4;
+      ctx.stroke();
+      ctx.strokeStyle = '#ff6b4a';
+      ctx.lineWidth = compact() ? 1.8 : 2.2;
+      ctx.stroke();
+    }
+  }
+
   function draw(): void {
     if (!ctx || !layout()) {
       return;
@@ -886,6 +909,7 @@ export function createResultMap(
     }
     drawStations();
     drawMajorLabels();
+    drawDerailMarkers(lastDerails);
   }
 
   window.addEventListener('resize', () => {
@@ -895,12 +919,14 @@ export function createResultMap(
   });
 
   return {
-    show(profile: SpeedProfile): void {
+    show(profile: SpeedProfile, derailPoints: readonly number[] = []): void {
       lastProfile = profile;
+      lastDerails = derailPoints;
       draw();
     },
     clear(): void {
       lastProfile = null;
+      lastDerails = [];
       if (ctx) {
         ctx.clearRect(0, 0, width, height);
       }
@@ -1099,6 +1125,7 @@ export interface ResultShareData {
   distanceText: string;
   mapMaxText: string;
   eggText: string;
+  derailCount: number;
   isNewBest: boolean;
   mapCanvas: HTMLCanvasElement;
   qrImage?: HTMLImageElement | null;
@@ -1132,7 +1159,7 @@ export function renderResultImage(data: ResultShareData): string | null {
   const rightW = 460;
   const bodyTop = 470;
   const panelH = 570;
-  const rowGap = 92;
+  const rowGap = 84;
 
   const background = ctx.createLinearGradient(0, 0, width, height);
   background.addColorStop(0, '#0c2018');
@@ -1219,6 +1246,7 @@ export function renderResultImage(data: ResultShareData): string | null {
     ['最高等效时速', data.maxSpeedText],
     ['平均等效时速', data.averageSpeedText],
     ['全程', data.distanceText],
+    ['翻车次数', `${data.derailCount} 次`],
   ];
   rows.forEach(([label, value], index) => {
     const y = bodyTop + 74 + index * rowGap;
@@ -1233,12 +1261,12 @@ export function renderResultImage(data: ResultShareData): string | null {
   });
 
   if (data.eggText) {
-    text(data.eggText, leftX, bodyTop + 462, 24, green, 'left', 500);
+    text(data.eggText, leftX, bodyTop + 486, 24, green, 'left', 500);
   }
   text(
     `速度表按真实 ${data.distanceText} 尺度等效显示`,
     leftX,
-    bodyTop + 522,
+    bodyTop + 536,
     17,
     muted,
     'left',

@@ -109,6 +109,7 @@ export function createGame(
   const resultNewElement = getElement('result-new');
   const resultEggElement = getElement('result-egg');
   const resultAvgElement = getElement('result-avg');
+  const resultDerailElement = getElement('result-derail');
   const resultMapMaxElement = getElement('result-map-max');
   const shareButton = getElement<HTMLButtonElement>('share');
   const saveButton = getElement<HTMLButtonElement>('save');
@@ -152,6 +153,7 @@ export function createGame(
       distanceText: `${GAME.realKm.toLocaleString('en-US')} km`,
       mapMaxText: resultMapMaxElement.textContent ?? '',
       eggText: resultEggElement.textContent ?? '',
+      derailCount: derails,
       isNewBest: !resultNewElement.classList.contains('hidden'),
       mapCanvas: resultMapCanvas,
     };
@@ -181,6 +183,7 @@ export function createGame(
   let cameraSwing = 0;
   let brakeRamp = 0;
   let derails = 0;
+  const derailPoints: number[] = [];
   let debugView: DebugView | null = null;
   const visitedStops = new Set<string>();
   const alightSpawned = new Set<string>();
@@ -250,6 +253,7 @@ export function createGame(
     v = 0;
     pressing = false;
     derails += 1;
+    derailPoints.push(s);
     audio.crash();
     startHint.classList.add('hidden');
   }
@@ -502,6 +506,7 @@ export function createGame(
     resultBestElement.textContent = formatTime(
       isNewBest ? time : (previousBest?.time ?? time),
     );
+    resultDerailElement.textContent = `${derails} 次`;
     resultNewElement.classList.toggle('hidden', !isNewBest);
     const saved = 22 * 3600 + 31 * 60 - time;
     resultEggElement.textContent =
@@ -514,7 +519,7 @@ export function createGame(
     resultMapMaxElement.textContent = `0 – ${Math.round(
       Math.max(speedProfile.max, 0) * GAME.speedScale,
     ).toLocaleString('en-US')} km/h`;
-    resultMap.show(speedProfile);
+    resultMap.show(speedProfile, derailPoints);
     startHint.classList.add('hidden');
     audio.fanfare();
     void leaderboard.submit(lastFinishTime);
@@ -536,6 +541,7 @@ export function createGame(
     smoothedAccel = 0;
     brakeRamp = 0;
     derails = 0;
+    derailPoints.length = 0;
     debugView = null;
     visitedStops.clear();
     alightSpawned.clear();
