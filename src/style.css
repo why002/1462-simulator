@@ -68,19 +68,23 @@ body {
 
 .brand {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
 .badge {
-  padding: 3px 6px;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--green);
   background: rgba(0, 0, 0, 0.2);
   font-size: 10px;
+  line-height: 1;
   letter-spacing: 0.12em;
 }
 
@@ -91,19 +95,24 @@ body {
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.03em;
+  /* 数字没有下伸部，需下移约 2 px 才与两段中文文本的视觉中心对齐。 */
+  transform: translateY(2px);
 }
 
 .route {
   font-size: 13px;
+  line-height: 1;
   letter-spacing: 0.08em;
   opacity: 0.85;
   white-space: nowrap;
+  transform: translateY(-1px);
 }
 
 .next-stop-led {
   position: relative;
   flex: 1 1 0;
-  min-width: 0;
+  /* 2.5 个 11 列汉字 + 每字 1 列间隔 = 60 px（2 px 点距），再加桌面内距与边框。 */
+  min-width: 78px;
   max-width: 360px;
   height: 48px;
   overflow: hidden;
@@ -265,6 +274,44 @@ body {
 
 .icon-button:active {
   transform: translateY(1px);
+}
+
+.sound-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--green);
+}
+
+.sound-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sound-button .sound-speaker {
+  fill: currentColor;
+  stroke: none;
+}
+
+.sound-button .sound-slash {
+  display: none;
+}
+
+.sound-button.off {
+  color: var(--muted);
+}
+
+.sound-button.off .sound-wave {
+  display: none;
+}
+
+.sound-button.off .sound-slash {
+  display: block;
 }
 
 .route-map {
@@ -1383,15 +1430,12 @@ body {
     gap: 8px;
   }
 
-  .badge {
-    display: none;
-  }
-
-  .route {
-    display: none;
+  .top-right {
+    gap: 6px;
   }
 
   .next-stop-led {
+    min-width: 74px;
     max-width: none;
     height: 34px;
     border-radius: 6px;
@@ -1464,5 +1508,33 @@ body {
   .pass-toast {
     top: calc(max(12px, env(safe-area-inset-top)) + 110px);
     right: calc(12px + 132px + 8px);
+  }
+}
+
+@media (max-width: 384px) {
+  .pax-chip {
+    padding: 7px 8px;
+  }
+
+  .pax-label {
+    display: none;
+  }
+}
+
+@media (max-width: 354px) {
+  .pax-chip {
+    display: none;
+  }
+}
+
+@media (max-width: 630px) {
+  .route {
+    display: none;
+  }
+}
+
+@media (max-width: 538px) {
+  .badge {
+    display: none;
   }
 }
