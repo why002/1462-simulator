@@ -10,12 +10,14 @@ import {
   createRouteMap,
   createSpeedProfile,
   createSpeedometer,
-  downloadResultImage,
   loadBest,
   recordSpeed,
   resetSpeedProfile,
   saveBest,
+  type ResultShareData,
 } from './hud';
+import { createLeaderboard } from './leaderboard';
+import { createShareController } from './share';
 import type { PathData, PathSample, StationOnRoute } from './types';
 import type { Train } from './train';
 import type { World } from './world';
@@ -109,6 +111,8 @@ export function createGame(
   const resultAvgElement = getElement('result-avg');
   const resultMapMaxElement = getElement('result-map-max');
   const shareButton = getElement<HTMLButtonElement>('share');
+  const saveButton = getElement<HTMLButtonElement>('save');
+  const challengeElement = getElement('hint-challenge');
   const helpButton = getElement<HTMLButtonElement>('help');
   const helpOverlay = getElement('help-overlay');
   const helpCloseButton = getElement<HTMLButtonElement>('help-close');
@@ -133,7 +137,31 @@ export function createGame(
     GAME.vMax * GAME.speedScale,
   );
   let lastFinishTime = 0;
-  let shareResetTimer = 0;
+  const leaderboard = createLeaderboard({
+    isResultVisible: () => !resultElement.classList.contains('hidden'),
+    onOpen: () => release(),
+  });
+
+  function buildShareData(): ResultShareData {
+    return {
+      timeText: resultTimeElement.textContent ?? formatTime(lastFinishTime),
+      bestTimeText: resultBestElement.textContent ?? '—',
+      maxSpeedText: resultMaxElement.textContent ?? '—',
+      averageSpeedText: resultAvgElement.textContent ?? '—',
+      distanceText: `${GAME.realKm.toLocaleString('en-US')} km`,
+      mapMaxText: resultMapMaxElement.textContent ?? '',
+      eggText: resultEggElement.textContent ?? '',
+      isNewBest: !resultNewElement.classList.contains('hidden'),
+      mapCanvas: resultMapCanvas,
+    };
+  }
+
+  const shareController = createShareController({
+    shareButton,
+    saveButton,
+    getPoster: buildShareData,
+    getTime: () => lastFinishTime,
+  });
 
   let s: number = path.coreStart;
   let v = 0;
@@ -483,6 +511,7 @@ export function createGame(
     resultMap.show(speedProfile);
     startHint.classList.add('hidden');
     audio.fanfare();
+    void leaderboard.submit(lastFinishTime);
   }
 
   function reset(): void {
@@ -509,9 +538,9 @@ export function createGame(
     lastMidpoint = GAME.startS - GAME.coachOffset * 0.5;
     hideStationOverlays();
     setHelpVisible(false);
-    window.clearTimeout(shareResetTimer);
-    shareButton.textContent = '分享成绩';
-    shareButton.disabled = false;
+    leaderboard.hideResult();
+    leaderboard.close();
+    shareController.reset();
     passengerFx.reset();
     effects.reset();
     audio.reset();
@@ -538,6 +567,9 @@ export function createGame(
     debugView = null;
     resultElement.classList.add('hidden');
     startHint.classList.add('hidden');
+    leaderboard.hideResult();
+    leaderboard.close();
+    shareController.reset();
     s = clamp(value, 0, path.coreEnd - 0.5);
     visitedStops.clear();
     alightSpawned.clear();
@@ -727,7 +759,13 @@ export function createGame(
   }
 
   function press(): void {
-    if (finished || derailing || !helpOverlay.classList.contains('hidden')) {
+    if (
+      finished ||
+      derailing ||
+      !helpOverlay.classList.contains('hidden') ||
+      leaderboard.isOpen() ||
+      shareController.isOpen()
+    ) {
       return;
     }
     audio.unlock();
@@ -746,7 +784,9 @@ export function createGame(
   function isUiTarget(target: EventTarget | null): boolean {
     return (
       target instanceof Element &&
-      target.closest('#result, #retry, #share, #help, #help-overlay') !== null
+      target.closest(
+        '#result, #retry, #save, #share, #help, #help-overlay, #rank, #rank-hint, #rank-overlay, #share-overlay',
+      ) !== null
     );
   }
 
@@ -782,7 +822,12 @@ export function createGame(
   window.addEventListener('pointercancel', release);
   window.addEventListener('blur', release);
   window.addEventListener('contextmenu', (event) => event.preventDefault());
-  document.addEventListener('selectstart', (event) => event.preventDefault());
+  document.addEventListener('selectstart', (event) => {
+    if (event.target instanceof Element && event.target.closest('#share-link')) {
+      return;
+    }
+    event.preventDefault();
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -794,34 +839,6 @@ export function createGame(
     event.stopPropagation();
     reset();
     retryButton.blur();
-  });
-
-  shareButton.addEventListener('click', (event) => {
-    event.stopPropagation();
-    shareButton.disabled = true;
-    const totalSeconds = Math.floor(lastFinishTime);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    const fileName = `jinghu-1462-${minutes}m${String(seconds).padStart(2, '0')}s.png`;
-    const exported = downloadResultImage({
-      timeText: resultTimeElement.textContent ?? formatTime(lastFinishTime),
-      bestTimeText: resultBestElement.textContent ?? '—',
-      maxSpeedText: resultMaxElement.textContent ?? '—',
-      averageSpeedText: resultAvgElement.textContent ?? '—',
-      distanceText: `${GAME.realKm.toLocaleString('en-US')} km`,
-      mapMaxText: resultMapMaxElement.textContent ?? '',
-      eggText: resultEggElement.textContent ?? '',
-      isNewBest: !resultNewElement.classList.contains('hidden'),
-      mapCanvas: resultMapCanvas,
-      fileName,
-    });
-    shareButton.textContent = exported ? '已导出' : '导出失败';
-    shareButton.disabled = false;
-    window.clearTimeout(shareResetTimer);
-    shareResetTimer = window.setTimeout(() => {
-      shareButton.textContent = '分享成绩';
-    }, 1600);
-    shareButton.blur();
   });
 
   helpButton.addEventListener('click', (event) => {
@@ -1042,6 +1059,21 @@ export function createGame(
   };
 
   (window as unknown as { __game: GameDebug }).__game = debug;
+
+  const challengeTenths = Number.parseInt(
+    new URLSearchParams(window.location.search).get('c') ?? '',
+    10,
+  );
+  if (
+    Number.isFinite(challengeTenths) &&
+    challengeTenths > 0 &&
+    challengeTenths <= 864000
+  ) {
+    challengeElement.textContent = `分享纪录 ${formatTime(
+      challengeTenths / 10,
+    )} · 来挑战`;
+    challengeElement.classList.remove('hidden');
+  }
 
   reset();
 

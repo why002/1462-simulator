@@ -8,7 +8,7 @@
 - 66 个三等及以上车站：22 个停靠上下客，44 个通过；四等及以下不建模。
 - 核心线路 14,630 游戏米（1 游戏米 = 100 真实米），加 70 m 起点引线和 150 m 终点缓冲，总长 14,850。
 - 玩法：按住加速、松开制动；乘客跳乘、载重；曲线超速脱线；到北京停表并记录最快用时。
-- 当前状态（2026-11-06）：M1–M9 + R1/R2 已完成并通过本地浏览器回归；济南实际经路、正线直线道岔、σ=50 发卡弯与急弯相机已更新；列车倾斜改为平衡竖直的二阶弹簧模型，脱线只由实际倾角 60° 触发、翻车动画到 90°；最高速度与过弯极限已整体 ×2（70,000 km/h 等效、`√(50R)`），`accMax = 27`、`brake = 42`，速度表盘刻度到 30,000 km/h；尚未部署。官桥站经纬度待用户确认。
+- 当前状态（2026-11-09）：M1–M9 + R1/R2 已完成并通过本地浏览器回归；济南实际经路、正线直线道岔、σ=50 发卡弯与急弯相机已更新；列车倾斜改为平衡竖直的二阶弹簧模型，脱线只由实际倾角 60° 触发、翻车动画到 90°；最高速度与过弯极限已整体 ×2（70,000 km/h 等效、`√(50R)`），`accMax = 27`、`brake = 42`，速度表盘刻度到 30,000 km/h；已接入 B 站 Toy 排行榜（榜位 1，分数为用时负十分之一秒）与分享/挑战链接/成绩图保存，本地与 GitHub Pages 自动降级；尚未部署。官桥站经纬度待用户确认。
 
 ## 常用命令
 
@@ -31,13 +31,17 @@ npm run preview   # http://localhost:4173/
 - `src/game/world.ts`：天空、地面、轨道、接触网、沿线场景、站台/站牌、跨河桥（开放式细杆桁架，`mergeGeometries`）、济南京沪正线实体轨道（道砟/轨枕/钢轨）。
 - `src/game/train.ts`：SS9 风格机车 + 1 节绿皮车厢；双点贴轨、受电弓、车侧文字。
 - `src/game/game.ts`：游戏循环、物理/脱线/载重、相机、上下客流程、HUD 更新、结算/重跑、调试钩子 `GameDebug`。
-- `src/game/hud.ts`：LED 状态、车头朝上的前方小地图、结算速度图、速度表、站名弹层、最快纪录、分享。
+- `src/game/hud.ts`：LED 状态、车头朝上的前方小地图、结算速度图、速度表、站名弹层、最快纪录、结算海报渲染。
+- `src/game/toy.ts`：B 站 Toy SDK 的窄类型与调用封装（榜位 1 分数换算、提交/读榜/我的排名、分享、二维码、相册保存、超时与错误分类、`isToyPage()` 路径判定）。
+- `src/game/leaderboard.ts`：排行榜弹层（总榜/本周/本月、前 20 名、我的排名、缓存与手动刷新）及结算页成绩上传状态。
+- `src/game/share.ts`：分享面板/系统分享/二维码复制链接弹层，成绩图在 App 内保存相册、Web 端下载。
 - `src/game/ledFont.ts`：LED 用的 12 行 0/1 点阵字库（81 个实际用到的字符），可直接改字形；每字后由跑马灯自动补 1 列空列。
 - `tools/led_editor.py`：本地 tkinter 点阵字库编辑器，12 行网格可点击/拖动编辑、整体上下左右平移（方向键也可）、顶部跑马灯预览，保存写回 `ledFont.ts`；`--check` 只校验。
 - `tools/auto_run.js`：浏览器控制台自动跑脚本，按曲率限速和制动剖面全程自动驾驶（默认 44° 目标倾角、52° 倾角保护），粘贴即从上海站开跑。
 - `src/game/audio.ts` / `effects.ts` / `exchange.ts`：合成音效、火花/风线、乘客跳乘动画。
 - `src/game/types.ts` / `config.ts`：接口与参数。
 - `README.md`：运行方式、玩法、**浏览器控制台调试命令**（新增调试命令时同步更新）。
+- `toy/toy.d.ts` / `toy/toy-js-sdk-abilities.md`：B 站 Toy SDK 官方类型与能力说明；`toy/` 已 gitignore，只作本地参考，构建和运行不得依赖该目录。
 - `map-points.local.json`：本地地图点（66 站、桥梁、济南线），**已 gitignore，不提交**。
 - `.github/workflows/deploy.yml`：GitHub Pages 工作流（未启用）。
 
@@ -83,7 +87,21 @@ npm run preview   # http://localhost:4173/
 - 追车相机 FOV = `fovBase 55` + `fovSpeedGain 8 × v/vMax` + 纵向加速度项：加速变宽、制动收窄（上限 +6° / −5°，增益 `fovAccelGain 0.7`），加速度经 `fovAccelSmoothTime 0.45 s` 平滑，用于速度感；平滑时间不要调回 0.18 s，按下加速时 FOV 会跳得太快。调试视角各自固定 FOV，不受影响。
 - 过弯时相机向弯外“甩出”：横向偏移 `cameraSwingDistance 4 m`、外倾 `cameraSwingRoll 5°`，强度为 `v²|κ| / cameraSwingAccel 9`（0–1），方向取 `sign(κ) × normal`（左弯向右外移并顺时针滚转），经 `cameraSwingSmoothTime 0.3 s` 平滑；直线回正。
 - 固定晴朗午后光照；装饰性地标（东方明珠、虎丘塔、泰山山脊、天津之眼、北京站钟楼等）暂不做。
-- 不新增外部图片/字体/服务端；贴图用 Canvas，音效用 Web Audio 合成。
+- 不新增外部图片/字体/服务端；贴图用 Canvas，音效用 Web Audio 合成。唯一的第三方脚本是 B 站官方 Toy SDK（`toy-sdk.js`），用于排行榜与分享。
+
+### B 站 Toy 接入
+
+- `index.html` 在 `<head>` 异步引入官方 `//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js`；所有 SDK 调用走 `src/game/toy.ts`，不要在别处直接读 `window.toy`。`toy/` 文档目录被 gitignore，不是构建依赖。
+- 只有路径匹配 `/toy/<slug>/`（`isToyPage()`）时才调用排行榜 / 分享 / 二维码 / 相册；本地根路径和 GitHub Pages 必须走网页降级，不能反复等 handshake 超时。
+- 排行榜固定用榜位 1，分数 `score = -Math.max(1, Math.floor(time × 10))`（负的十分之一秒，整数，至少 1），越快分数越高；不要改成正值或另起榜位，否则旧成绩无法解释。提交是绝对分数，服务端只保留历史最高分。
+- 周期只用 `all / week / month`；每页 20 名；榜单在内存缓存，只有手动「刷新」或新成绩提交成功后才重拉，禁止定时轮询。
+- 完赛自动提交一次，不要额外重复提交。结算页排名行显示 pending / 全站第 N 名 / 未登录 / 未授权 / 环境不支持 / 繁忙 / 上传失败，点击打开排行榜。`getMyRank` 是否上榜必须看 `ranked`，不能看 score。
+- 分享链接路径固定为 `index.html?c=<十分之一秒>`；开始页读取 `c` 显示「分享纪录 X · 来挑战」，只用 textContent 写入，不要拼接 HTML，也不要把昵称等用户输入放进 query。
+- App 内分享优先 `toy.share`；Toy 网页端打开二维码/复制链接弹层，非 Toy 网页在支持 `navigator.share` 时使用系统分享。`getQrCode` 只在 Toy 路径下调用。
+- 成绩图保存：App 内用 `saveImageToAlbum`（base64Data），Web 用 `<a download>`；不要强制两者走同一路径。
+- `submitScore`、`share`、`saveImageToAlbum` 可能等待平台授权 / 分享 / 相册弹窗，**不要加短客户端超时**；只有 `getRankList`、`getMyRank`、`getQrCode`、`isSupport` 这类查询使用 8 s / 4 s 超时。真实 SDK 在非 Toy 环境 handshake 约 10 s 才失败，所以路径判定是首层保护。
+- 手机端顶栏隐藏「榜」按钮以保留 LED 宽度，入口放在开始提示「查看排行榜」，结算页排名行也始终可进入；手机点入口不能触发加速（`isUiTarget` 必须包含 `#rank-hint`）。
+- 不要用 `getUserProfile` 获取 UID/MID，也不要把 `toyOpenId` 写入日志或埋点；当前功能不需要用户资料。
 
 ### 坐标与数据来源
 
@@ -129,9 +147,11 @@ __game.reset();           // 重置整局
 6. 玩法回归：苏州上下客、通过站提示、强制脱线、终点结算/重跑、最快纪录持久化、静音持久化；济南发卡弯处追车相机能看到完整列车。整局按理论限速曲线约 141 s（旧参数约 264 s）；保守自动驾驶（0.8×限速、提前制动）实测 2:46.5 无脱线完赛，最高 49,728 km/h；0→100 m/s 约 7.7 s，120 m/s 制动到停车约 264 m。
 7. LED 字库：`py tools/led_editor.py --check` 通过（12 行、81 个字符、各行等宽）；桌面/手机 LED 窗口内高 38 / 26 px，22 个停靠站文案无缺字告警。
 8. 性能目标：draw calls <180、三角形 <500k；当前约 104 calls / 274k 三角形（上海起点）。
+9. B 站 Toy：在 `/toy/<slug>/` 路径下 mock `window.toy`，完赛应提交并显示「全站第 N 名 · 最快 X」；排行榜前 20 名、周期切换、自己高亮与刷新正常；`toy.share` mock 成功时显示「已分享」；禁用 `toy.share` / `navigator.share` 后应打开二维码 + 复制链接弹层；App mock 下保存图片走 `saveImageToAlbum`。根路径必须即时降级：排行榜提示「需在 B 站 Toy 内使用」、分享弹层无二维码、保存走下载，不能等待 handshake 超时。手机 390×844 无横向溢出，LED 宽度约 107 px，开始页点「查看排行榜」不得触发加速。
 
 ## 当前待办
 
+- 真实 B 站 Toy 环境联调：首次提交的用户数据确认弹窗、原生分享面板、相册权限与线上榜单数据。
 - 官桥站经纬度确认。
-- 部署（GitHub Pages）需用户确认后执行。
+- 部署（GitHub Pages）需用户确认后执行；正式 Toy 功能需把 `dist/` 部署到 B 站 Toy。
 - 外部实施计划可能滞后；以代码、README 和本文件为准。

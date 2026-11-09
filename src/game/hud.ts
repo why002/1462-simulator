@@ -1086,10 +1086,9 @@ export interface ResultShareData {
   eggText: string;
   isNewBest: boolean;
   mapCanvas: HTMLCanvasElement;
-  fileName: string;
 }
 
-export function downloadResultImage(data: ResultShareData): boolean {
+export function renderResultImage(data: ResultShareData): string | null {
   const width = 1200;
   const height = 1200;
   const canvas = document.createElement('canvas');
@@ -1097,7 +1096,7 @@ export function downloadResultImage(data: ResultShareData): boolean {
   canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    return false;
+    return null;
   }
 
   const fontSans = '"Noto Sans SC", "Microsoft YaHei", sans-serif';
@@ -1276,17 +1275,9 @@ export function downloadResultImage(data: ResultShareData): boolean {
   try {
     url = canvas.toDataURL('image/png');
   } catch {
-    return false;
+    return null;
   }
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = data.fileName;
-  anchor.rel = 'noopener';
-  anchor.style.display = 'none';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  return true;
+  return url;
 }
 
 const SPEED_GRADIENT: Array<{ at: number; rgb: [number, number, number] }> = [

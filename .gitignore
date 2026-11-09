@@ -4,3 +4,4 @@ dist
 map-points.local.json
 .DS_Store
 __pycache__/
+toy/
