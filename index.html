@@ -12,6 +12,7 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d3b27'/%3E%3Crect x='16' y='18' width='32' height='22' rx='5' fill='%233ddc84'/%3E%3Crect x='20' y='24' width='8' height='7' fill='%23a9d0ea'/%3E%3Crect x='32' y='24' width='8' height='7' fill='%23a9d0ea'/%3E%3Ccircle cx='23' cy='46' r='4' fill='%23ffd24a'/%3E%3Ccircle cx='41' cy='46' r='4' fill='%23ffd24a'/%3E%3C/svg%3E"
     />
     <title>京沪神车 1462 · 京沪线</title>
+    <script src="//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js" async></script>
   </head>
   <body>
     <div id="app">
@@ -38,6 +39,7 @@
               </div>
             </div>
             <div class="top-right">
+              <button id="rank" class="icon-button" type="button" aria-label="排行榜">榜</button>
               <button id="help" class="icon-button" type="button" aria-label="玩法说明">?</button>
               <div class="pax-chip">乘客 <b id="pax">240</b></div>
               <div class="timer"><span id="timer">0:00.0</span></div>
@@ -49,6 +51,8 @@
           <div class="hint-main">按住加速</div>
           <div class="hint-sub">空格 / ↑ / W / 屏幕 · 松开刹车</div>
           <div class="hint-extra">上海 → 北京 · 1,463 km · 曲线超速会脱线</div>
+          <div class="hint-challenge hidden" id="hint-challenge"></div>
+          <button id="rank-hint" class="hint-rank" type="button">查看排行榜</button>
         </div>
 
         <div class="station-popup-layer">
@@ -121,6 +125,11 @@
             <h1>抵达北京站</h1>
             <div class="result-time" id="result-time">0:00.0</div>
             <div class="result-new hidden" id="result-new">新纪录</div>
+            <button class="result-rank hidden" id="result-rank" type="button" data-state="">
+              <span class="result-rank-dot"></span>
+              <span id="result-rank-text"></span>
+              <span class="result-rank-more">排行榜 →</span>
+            </button>
             <div class="result-body">
               <div class="result-map-panel">
                 <div class="result-map-head">
@@ -153,9 +162,70 @@
             </div>
             <div class="result-actions">
               <button id="retry" type="button">再跑一次</button>
-              <button id="share" type="button" class="ghost">分享成绩</button>
+              <button id="save" type="button" class="ghost">保存图片</button>
+              <button id="share" type="button" class="ghost">分享</button>
             </div>
             <div class="result-foot">速度表按真实 1463 km 尺度等效显示</div>
+          </div>
+        </div>
+
+        <div
+          id="rank-overlay"
+          class="rank-overlay hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="rank-title"
+        >
+          <div class="rank-card">
+            <div class="rank-head">
+              <div>
+                <div class="rank-kicker">京沪线 · 1462</div>
+                <h2 id="rank-title">全站最快榜</h2>
+              </div>
+              <button id="rank-close" class="rank-close" type="button" aria-label="关闭排行榜">×</button>
+            </div>
+            <div class="rank-tabs" role="tablist" aria-label="榜单周期">
+              <button class="rank-tab active" data-period="all" type="button" role="tab" aria-selected="true">总榜</button>
+              <button class="rank-tab" data-period="week" type="button" role="tab" aria-selected="false">本周</button>
+              <button class="rank-tab" data-period="month" type="button" role="tab" aria-selected="false">本月</button>
+            </div>
+            <div id="rank-list" class="rank-list" aria-live="polite"></div>
+            <div id="rank-me" class="rank-me">正在查询我的排名…</div>
+            <div class="rank-foot">
+              <span>按完赛用时排序 · 每人只记最快一局</span>
+              <button id="rank-refresh" type="button">刷新</button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="share-overlay"
+          class="share-overlay hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="share-title"
+        >
+          <div class="share-card">
+            <div class="share-head">
+              <div>
+                <div class="share-kicker">京沪神车 1462</div>
+                <h2 id="share-title">分享成绩</h2>
+              </div>
+              <button id="share-close" class="share-close" type="button" aria-label="关闭分享">×</button>
+            </div>
+            <div id="share-qr-block" class="share-qr-block hidden">
+              <img id="share-qr" alt="分享二维码" />
+              <div id="share-qr-note" class="share-qr-note"></div>
+            </div>
+            <div id="share-hint" class="share-hint">好友打开后可直接挑战你的纪录。</div>
+            <div class="share-link-row">
+              <input id="share-link" type="text" readonly aria-label="分享链接" />
+              <button id="share-copy" type="button">复制链接</button>
+            </div>
+            <div class="share-actions">
+              <button id="share-save" type="button" class="ghost">保存图片</button>
+              <button id="share-close-bottom" type="button">完成</button>
+            </div>
           </div>
         </div>
       </div>
