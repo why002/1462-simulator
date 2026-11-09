@@ -1,9 +1,14 @@
-// 三相正弦与三角载波比较，输出 A 相电压（以直流母线中点为参考）。
-// 线电压 U-V 会抵消共模载波，使开关簇落在 2fs；单相电压才能保留给定的
-// 300 / 400 Hz 载波与 N·f1 同步频率。
+// 三相正弦与三角载波比较，输出 A 相开关电压（以直流母线中点为参考），
+// 再经模拟电机电感/车体声学的低通输出。线电压 U-V 会抵消共模载波，
+// 使开关簇落在 2fs；单相电压才能保留给定的 300 / 400 Hz 载波与 N·f1 同步频率。
 // 异步段载波独立；同步段 21/15/5/3 与基波锁相（N 倍）；
 // 11/7 分频使用 SHE 开关角；方波段 N=1、调制系数 >1。
 const TAU = Math.PI * 2;
+
+// 电机电感与车体声学响应：开关电压先经两级一阶低通（≈12 dB/oct），
+// 保留载波与边带，削掉 2–20 kHz 的谐波毛刺。
+const MOTOR_CUTOFF_HZ = 1800;
+const MOTOR_OUTPUT_GAIN = 1.2;
 
 // 11 / 7 分频 SHE 的四分之一周期开关角（M = 1.0），角度单位为弧度。
 const SHE_TABLES = {
@@ -59,6 +64,9 @@ class VvvfProcessor extends AudioWorkletProcessor {
     this.pulses = 0;
     this.freqCoeff = 1 - Math.exp(-1 / (0.04 * sampleRate));
     this.ampCoeff = 1 - Math.exp(-1 / (0.03 * sampleRate));
+    this.lpCoeff = 1 - Math.exp((-2 * Math.PI * MOTOR_CUTOFF_HZ) / sampleRate);
+    this.lp1 = 0;
+    this.lp2 = 0;
     this.port.onmessage = (event) => this.handleMessage(event.data);
   }
 
@@ -75,6 +83,8 @@ class VvvfProcessor extends AudioWorkletProcessor {
       this.sync = false;
       this.she = false;
       this.pulses = 0;
+      this.lp1 = 0;
+      this.lp2 = 0;
       return;
     }
 
@@ -124,6 +134,9 @@ class VvvfProcessor extends AudioWorkletProcessor {
     const offset = this.syncOffset;
     const sheTable = this.she ? SHE_TABLES[pulses] : null;
     const invRate = 1 / sampleRate;
+    const lpCoeff = this.lpCoeff;
+    let lp1 = this.lp1;
+    let lp2 = this.lp2;
 
     for (let i = 0; i < output.length; i += 1) {
       baseHz += (this.targetBaseHz - baseHz) * freqCoeff;
@@ -133,8 +146,9 @@ class VvvfProcessor extends AudioWorkletProcessor {
       basePhase += baseHz * invRate;
       basePhase -= Math.floor(basePhase);
 
+      let raw;
       if (sheTable) {
-        output[i] = sheLevel(sheTable, TAU * basePhase);
+        raw = sheLevel(sheTable, TAU * basePhase);
       } else {
         let carrier;
         if (sync) {
@@ -146,8 +160,12 @@ class VvvfProcessor extends AudioWorkletProcessor {
         }
 
         const triangle = 1 - 4 * Math.abs(carrier - Math.floor(carrier) - 0.5);
-        output[i] = Math.sin(TAU * basePhase) * amplitude > triangle ? 1 : -1;
+        raw = Math.sin(TAU * basePhase) * amplitude > triangle ? 1 : -1;
       }
+
+      lp1 += (raw - lp1) * lpCoeff;
+      lp2 += (lp1 - lp2) * lpCoeff;
+      output[i] = lp2 * MOTOR_OUTPUT_GAIN;
     }
 
     this.basePhase = basePhase;
@@ -155,6 +173,8 @@ class VvvfProcessor extends AudioWorkletProcessor {
     this.baseHz = baseHz;
     this.carrierHz = carrierHz;
     this.amplitude = amplitude;
+    this.lp1 = lp1;
+    this.lp2 = lp2;
     return true;
   }
 }
