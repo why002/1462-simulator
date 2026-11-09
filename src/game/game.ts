@@ -222,10 +222,6 @@ export function createGame(
     return clamp((value - path.coreStart) / GAME.metersPerKm, 0, GAME.realKm);
   }
 
-  function massFactor(): number {
-    return 1 + pax * GAME.paxWeight;
-  }
-
   function lateralAccel(): number {
     const sample = path.sampleAt(s);
     return v * v * Math.abs(sample.curvature);
@@ -905,7 +901,6 @@ export function createGame(
       return;
     }
 
-    const mass = massFactor();
     let appliedAccel = 0;
     if (pressing) {
       brakeRamp = 0;
@@ -913,14 +908,14 @@ export function createGame(
       const launch = Math.min(1, v / GAME.accRampSpeed);
       const traction =
         GAME.accStart + (1 - GAME.accStart) * launch * launch * (3 - 2 * launch);
-      const acceleration = (GAME.accMax / mass) * (1 - v / GAME.vMax) * traction;
+      const acceleration = (GAME.accMax / GAME.massFactor) * (1 - v / GAME.vMax) * traction;
       appliedAccel = Math.max(0, acceleration);
       v += appliedAccel * dt;
     } else {
       // 制动缸压力快速建立，避免松手瞬间出现满制动。
       brakeRamp = Math.min(1, brakeRamp + dt / GAME.brakeRampTime);
       const bite = brakeRamp * brakeRamp * (3 - 2 * brakeRamp);
-      const delta = Math.min((GAME.brake / mass) * bite * dt, v);
+      const delta = Math.min((GAME.brake / GAME.massFactor) * bite * dt, v);
       v -= delta;
       appliedAccel = dt > 0 ? -delta / dt : 0;
     }
@@ -992,7 +987,7 @@ export function createGame(
       return pax;
     },
     get massFactor() {
-      return massFactor();
+      return GAME.massFactor;
     },
     get derailing() {
       return derailing;
