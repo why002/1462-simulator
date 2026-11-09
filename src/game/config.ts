@@ -16,7 +16,7 @@ export const GAME = {
   speedScale: 360,
   paxStart: 240,
   paxMax: 1000,
-  paxWeight: 0.001,
+  massFactor: 1.24,
   derailReset: 0.9,
   tiltGravity: 48,
   tiltGain: 1.3,

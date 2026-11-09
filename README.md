@@ -19,7 +19,7 @@ npm run preview   # 预览 dist/ http://localhost:4173/
 ## 玩法
 
 - 按住画面 / 空格 / ↑ / W 加速，松开减速。从静止起步时牵引力逐渐建立，加速度先增大再随速度回落；松开后制动力会在约 0.9 秒内平滑建立。
-- 列车不停站，乘客在站台与车门之间跳上跳下；人数越多，车越重，加速和制动越慢。
+- 列车不停站，乘客在站台与车门之间跳上跳下；乘客数只影响画面与统计，加速和制动固定按 240 人基准计算。
 - 曲线超速会脱线，约 0.9 秒后原地复位，计时不停。轨道中央的导引带会随当前车速连续渐变：按各段曲率算出的平衡倾角从 0° 到 30° 由绿渐变到黄、30° 到 60° 由黄渐变到红、60° 以上保持红，可提前判断当前速度能否安全过弯。
 - 全线 66 个三等及以上车站：22 个停靠、44 个通过；剩余站数只数停靠站。
 - 1462 在济南拐入济南站，出站后经济南线在黄河大桥南侧与京沪正线会合，共桥过河；京沪正线在济南西侧以直线通过，两端用缓和曲线接入道岔。
@@ -71,7 +71,7 @@ __game.km;                // 当前已跑 km（只读）
 | `__game.teleportToStation('济南')` | 跳到指定车站中心 |
 | `__game.teleportToRiver('长江')` | 跳到长江桥；`('黄河')` 跳到黄河大桥 |
 | `__game.setSpeed(194)` | 设置游戏速度（约 0–194.4 m/s，最高约 70,000 km/h） |
-| `__game.setPax(1000)` | 设置乘客数，用于测试载重 |
+| `__game.setPax(1000)` | 设置乘客数，用于测试上下客显示 |
 | `__game.forceDerail()` | 强制触发脱线 |
 | `__game.setView('overview')` | 切换调试镜头，可选 `follow` / `train` / `station` / `door` / `rear` / `overview` / `jinan` / `yangtze` / `yellow` |
 | `__game.reset()` | 重置整局，回到上海站 |
@@ -80,7 +80,7 @@ __game.km;                // 当前已跑 km（只读）
 | `__game.time` | 当前用时（秒） |
 | `__game.v` | 当前速度（游戏米/秒） |
 | `__game.pax` | 当前乘客数 |
-| `__game.massFactor` | 当前载重系数 |
+| `__game.massFactor` | 固定载重系数（240 人基准） |
 | `__game.vvvf` | 当前 VVVF 状态：`motorHz` / `carrierHz` / `pulses` / `sync` / `she` / `square` / `level`（只读） |
 | `__renderer.info.render.calls` | 当前 draw calls |
 | `__renderer.info.render.triangles` | 当前三角形数 |

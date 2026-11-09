@@ -33,8 +33,7 @@
     tiltGain: 1.3,
     derailAngle: (60 * Math.PI) / 180,
     brake: 42,
-    paxMax: 1000,
-    paxWeight: 0.001,
+    massFactor: 1.24,
   };
 
   const DEFAULTS = {
@@ -113,8 +112,7 @@
           : TUNING.vMax;
     }
 
-    const worstMass = 1 + TUNING.paxMax * TUNING.paxWeight;
-    const planDecel = (TUNING.brake / worstMass) * options.planDecelFactor;
+    const planDecel = (TUNING.brake / TUNING.massFactor) * options.planDecelFactor;
     const result = new Float32Array(count);
     let next = curveLimit[count - 1];
     result[count - 1] = next;
