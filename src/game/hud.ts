@@ -1076,6 +1076,21 @@ export function formatDuration(seconds: number): string {
   return `${minutes}:${rest.toFixed(1).padStart(4, '0')}`;
 }
 
+function formatFollowerCount(value: number): string {
+  if (value < 10000) {
+    return String(Math.round(value));
+  }
+  return `${(value / 10000).toFixed(1).replace(/\.0$/, '')}万`;
+}
+
+export interface ResultAuthorData {
+  nickname: string;
+  sign: string;
+  follower: number;
+  archiveCount: number;
+  avatarImage: HTMLImageElement | null;
+}
+
 export interface ResultShareData {
   timeText: string;
   bestTimeText: string;
@@ -1086,11 +1101,16 @@ export interface ResultShareData {
   eggText: string;
   isNewBest: boolean;
   mapCanvas: HTMLCanvasElement;
+  qrImage?: HTMLImageElement | null;
+  author?: ResultAuthorData | null;
 }
 
 export function renderResultImage(data: ResultShareData): string | null {
   const width = 1200;
-  const height = 1200;
+  const mainHeight = 1200;
+  const hasQr = Boolean(data.qrImage);
+  const hasAuthor = Boolean(data.author);
+  const height = hasQr || hasAuthor ? 1520 : mainHeight;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -1134,7 +1154,7 @@ export function renderResultImage(data: ResultShareData): string | null {
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
 
-  roundedRect(ctx, 2, 2, width - 4, height - 4, 34);
+  roundedRect(ctx, 2, 2, width - 4, mainHeight - 4, 34);
   ctx.strokeStyle = 'rgba(255, 210, 74, 0.3)';
   ctx.lineWidth = 2;
   ctx.stroke();
@@ -1154,6 +1174,26 @@ export function renderResultImage(data: ResultShareData): string | null {
     ctx.textAlign = align;
     ctx.textBaseline = 'middle';
     ctx.fillText(value, x, y);
+  };
+
+  const fit = (
+    value: string,
+    maxWidth: number,
+    size: number,
+    weight: number,
+  ): string => {
+    ctx.font = `${weight} ${size}px ${fontSans}`;
+    if (ctx.measureText(value).width <= maxWidth) {
+      return value;
+    }
+    let fitted = value;
+    while (
+      fitted.length > 1 &&
+      ctx.measureText(`${fitted}…`).width > maxWidth
+    ) {
+      fitted = fitted.slice(0, -1);
+    }
+    return `${fitted}…`;
   };
 
   text('京沪线 · 1462', width / 2, 92, 26, green, 'center', 600);
@@ -1270,6 +1310,132 @@ export function renderResultImage(data: ResultShareData): string | null {
   ctx.stroke();
   text(`上海 → 北京 · ${data.distanceText}`, leftX, footerY, 20, muted, 'left', 500);
   text('《京沪神车 1462》', width - leftX, footerY, 20, muted, 'right', 500);
+
+  if (hasQr || hasAuthor) {
+    const cardY = mainHeight + 20;
+    const cardH = 280;
+    roundedRect(ctx, 2, cardY, width - 4, cardH, 34);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 210, 74, 0.3)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    let infoRight = width - leftX;
+    if (data.qrImage) {
+      const qrSize = 184;
+      const qrPad = 12;
+      const qrCardSize = qrSize + qrPad * 2;
+      const qrCardX = width - leftX - qrCardSize;
+      const qrCardY = cardY + (cardH - qrCardSize) / 2;
+      roundedRect(ctx, qrCardX, qrCardY, qrCardSize, qrCardSize, 16);
+      ctx.fillStyle = '#f4fff9';
+      ctx.fill();
+      ctx.drawImage(
+        data.qrImage,
+        qrCardX + qrPad,
+        qrCardY + qrPad,
+        qrSize,
+        qrSize,
+      );
+      const captionFont = `600 22px ${fontSans}`;
+      ctx.font = captionFont;
+      const captionWidth = Math.max(
+        ctx.measureText('扫码打开游戏').width,
+        ctx.measureText('挑战这个成绩').width,
+      );
+      const captionX = qrCardX - 28;
+      text('扫码打开游戏', captionX, cardY + 120, 22, ink, 'right', 600);
+      text('挑战这个成绩', captionX, cardY + 156, 22, muted, 'right', 500);
+      infoRight = captionX - captionWidth - 40;
+    }
+
+    if (data.author) {
+      const author = data.author;
+      const avatarSize = 96;
+      const avatarX = leftX;
+      const avatarY = cardY + (cardH - avatarSize) / 2;
+      const avatarCx = avatarX + avatarSize / 2;
+      const avatarCy = avatarY + avatarSize / 2;
+      if (author.avatarImage) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(avatarCx, avatarCy, avatarSize / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(
+          author.avatarImage,
+          avatarX,
+          avatarY,
+          avatarSize,
+          avatarSize,
+        );
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(avatarCx, avatarCy, avatarSize / 2 - 1, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(61, 220, 132, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(avatarCx, avatarCy, avatarSize / 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(61, 220, 132, 0.16)';
+        ctx.fill();
+        text(
+          author.nickname.slice(0, 1) || '?',
+          avatarCx,
+          avatarCy,
+          40,
+          green,
+          'center',
+          700,
+        );
+      }
+
+      const meta: string[] = [];
+      if (author.follower > 0) {
+        meta.push(`粉丝 ${formatFollowerCount(author.follower)}`);
+      }
+      if (author.archiveCount > 0) {
+        meta.push(`稿件 ${author.archiveCount}`);
+      }
+      const lines: Array<{
+        value: string;
+        size: number;
+        color: string;
+        weight: number;
+      }> = [{ value: author.nickname, size: 30, color: ink, weight: 700 }];
+      if (author.sign) {
+        lines.push({ value: author.sign, size: 20, color: muted, weight: 400 });
+      }
+      if (meta.length) {
+        lines.push({
+          value: meta.join(' · '),
+          size: 17,
+          color: muted,
+          weight: 500,
+        });
+      }
+      const infoX = avatarX + avatarSize + 24;
+      const maxWidth = Math.max(120, infoRight - infoX);
+      const gap = 12;
+      const totalHeight =
+        lines.reduce((sum, line) => sum + line.size, 0) +
+        gap * (lines.length - 1);
+      let lineTop = avatarCy - totalHeight / 2;
+      for (const line of lines) {
+        text(
+          fit(line.value, maxWidth, line.size, line.weight),
+          infoX,
+          lineTop + line.size / 2,
+          line.size,
+          line.color,
+          'left',
+          line.weight,
+        );
+        lineTop += line.size + gap;
+      }
+    }
+  }
 
   let url: string;
   try {

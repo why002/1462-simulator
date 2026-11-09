@@ -101,6 +101,7 @@ npm run preview   # http://localhost:4173/
 - 分享链接路径固定为 `index.html?c=<十分之一秒>`；开始页读取 `c` 显示「分享纪录 X · 来挑战」，只用 textContent 写入，不要拼接 HTML，也不要把昵称等用户输入放进 query。
 - App 内分享优先 `toy.share`；Toy 网页端打开二维码/复制链接弹层，非 Toy 网页在支持 `navigator.share` 时使用系统分享。`getQrCode` 只在 Toy 路径下调用。
 - 成绩图保存：App 内用 `saveImageToAlbum`（base64Data），Web 用 `<a download>`；不要强制两者走同一路径。
+- 保存成绩图时，Toy 环境并行调用 `getQrCode`（挑战链接 `index.html?c=...`）与 `getAuthorProfile`，在原始 1200×1200 海报下方追加作者卡片（头像、昵称、签名、粉丝/稿件）与二维码，成图 1200×1520；非 Toy 环境保持原图。头像必须以 `crossOrigin='anonymous'` 加载，失败时用昵称首字占位，避免污染 canvas 导致 `toDataURL` 失败。
 - `submitScore`、`share`、`saveImageToAlbum` 可能等待平台授权 / 分享 / 相册弹窗，**不要加短客户端超时**；只有 `getRankList`、`getMyRank`、`getQrCode`、`isSupport` 这类查询使用 8 s / 4 s 超时。真实 SDK 在非 Toy 环境 handshake 约 10 s 才失败，所以路径判定是首层保护。
 - 手机端顶栏隐藏「榜」按钮以保留 LED 宽度，入口放在开始提示「查看排行榜」，结算页排名行也始终可进入；手机点入口不能触发加速（`isUiTarget` 必须包含 `#rank-hint`）。
 - 不要用 `getUserProfile` 获取 UID/MID，也不要把 `toyOpenId` 写入日志或埋点；当前功能不需要用户资料。
