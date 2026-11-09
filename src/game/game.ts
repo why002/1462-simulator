@@ -118,6 +118,7 @@ export function createGame(
   const helpCloseButton = getElement<HTMLButtonElement>('help-close');
   const helpRestartButton = getElement<HTMLButtonElement>('help-restart');
   const muteButton = getElement<HTMLButtonElement>('mute');
+  const quickMuteButton = getElement<HTMLButtonElement>('sound');
   const defaultFog = scene.fog;
   const passengerFx = createPassengerFx(scene, path);
   const effects = createEffects(scene, path);
@@ -216,6 +217,15 @@ export function createGame(
   function updateMuteLabel(muted: boolean): void {
     muteButton.textContent = muted ? '关闭' : '开启';
     muteButton.classList.toggle('off', muted);
+    quickMuteButton.classList.toggle('off', muted);
+    quickMuteButton.setAttribute('aria-pressed', String(muted));
+    quickMuteButton.setAttribute('aria-label', muted ? '开启声音' : '关闭声音');
+    quickMuteButton.title = muted ? '开启声音' : '关闭声音';
+  }
+
+  function toggleMute(): void {
+    audio.unlock();
+    updateMuteLabel(audio.toggleMute());
   }
 
   function realKmAt(value: number): number {
@@ -781,7 +791,7 @@ export function createGame(
     return (
       target instanceof Element &&
       target.closest(
-        '#result, #retry, #save, #share, #help, #help-overlay, #rank, #rank-hint, #rank-overlay, #share-overlay',
+        '#result, #retry, #save, #share, #help, #help-overlay, #rank, #rank-hint, #rank-overlay, #share-overlay, #sound, #mute',
       ) !== null
     );
   }
@@ -858,9 +868,14 @@ export function createGame(
 
   muteButton.addEventListener('click', (event) => {
     event.stopPropagation();
-    audio.unlock();
-    updateMuteLabel(audio.toggleMute());
+    toggleMute();
     muteButton.blur();
+  });
+
+  quickMuteButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleMute();
+    quickMuteButton.blur();
   });
 
   helpOverlay.addEventListener('pointerdown', (event) => {

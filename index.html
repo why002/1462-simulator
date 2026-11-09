@@ -41,7 +41,22 @@
             <div class="top-right">
               <button id="rank" class="icon-button" type="button" aria-label="排行榜">榜</button>
               <button id="help" class="icon-button" type="button" aria-label="玩法说明">?</button>
-              <div class="pax-chip">乘客 <b id="pax">240</b></div>
+              <button
+                id="sound"
+                class="icon-button sound-button"
+                type="button"
+                aria-label="关闭声音"
+                aria-pressed="false"
+                title="关闭声音"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path class="sound-speaker" d="M4.5 9h3.2L13 5.2v13.6L7.7 15H4.5z" />
+                  <path class="sound-wave" d="M16 8.8a4.8 4.8 0 0 1 0 6.4" />
+                  <path class="sound-wave" d="M18.6 6.2a8.3 8.3 0 0 1 0 11.6" />
+                  <path class="sound-slash" d="M4 4l16 16" />
+                </svg>
+              </button>
+              <div class="pax-chip"><span class="pax-label">乘客 </span><b id="pax">240</b></div>
               <div class="timer"><span id="timer">0:00.0</span></div>
             </div>
           </header>
