@@ -7,6 +7,7 @@ import {
   getToy,
   getToyQrCode,
   isToyPage,
+  loadToyAuthorProfile,
   saveToyImage,
   shareToyPage,
   supportsToyAbility,
@@ -47,6 +48,28 @@ function downloadDataUrl(dataUrl: string, fileName: string): boolean {
   } catch {
     return false;
   }
+}
+
+function loadImage(
+  src: string,
+  crossOrigin = false,
+): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    if (crossOrigin) {
+      image.crossOrigin = 'anonymous';
+    }
+    const timer = window.setTimeout(() => resolve(null), 6000);
+    image.onload = () => {
+      window.clearTimeout(timer);
+      resolve(image);
+    };
+    image.onerror = () => {
+      window.clearTimeout(timer);
+      resolve(null);
+    };
+    image.src = src;
+  });
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -226,7 +249,31 @@ export function createShareController(options: ShareOptions): ShareController {
     const currentEpoch = epoch;
     button.disabled = true;
     try {
-      const dataUrl = renderResultImage(options.getPoster());
+      const target = shareTarget();
+      const [qrBase64, author] = await Promise.all([
+        getToyQrCode(target.path),
+        loadToyAuthorProfile(),
+      ]);
+      const [qrImage, avatarImage] = await Promise.all([
+        qrBase64 ? loadImage(qrBase64) : Promise.resolve(null),
+        author?.avatar ? loadImage(author.avatar, true) : Promise.resolve(null),
+      ]);
+      if (currentEpoch !== epoch) {
+        return;
+      }
+      const dataUrl = renderResultImage({
+        ...options.getPoster(),
+        qrImage,
+        author: author
+          ? {
+              nickname: author.nickname,
+              sign: author.sign,
+              follower: author.follower,
+              archiveCount: author.archiveCount,
+              avatarImage,
+            }
+          : null,
+      });
       if (!dataUrl) {
         if (currentEpoch === epoch) {
           flash(button, '生成失败');

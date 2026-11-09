@@ -13,6 +13,14 @@ export interface ToyMyRank {
   score: number;
 }
 
+export interface ToyAuthorProfile {
+  nickname: string;
+  avatar: string;
+  sign: string;
+  follower: number;
+  archiveCount: number;
+}
+
 export interface ToyApi {
   isSupport?(ability: string): Promise<boolean>;
   share?(req: { path: string }): Promise<void>;
@@ -32,6 +40,16 @@ export interface ToyApi {
     limit?: number;
   }): Promise<ToyRankItem[]>;
   getMyRank?(req?: { board?: number; period?: RankPeriod }): Promise<ToyMyRank>;
+  getAuthorProfile?(): Promise<{
+    status: string;
+    data?: {
+      nickname?: string;
+      avatar?: string;
+      sign?: string;
+      follower?: number;
+      archiveCount?: number;
+    };
+  }>;
 }
 
 declare global {
@@ -270,6 +288,46 @@ export async function getToyQrCode(path: string): Promise<string | null> {
     return result.base64;
   } catch (error) {
     console.warn('[toy] getQrCode failed', error);
+    return null;
+  }
+}
+
+export async function loadToyAuthorProfile(): Promise<ToyAuthorProfile | null> {
+  const api = getToy();
+  if (!api?.getAuthorProfile || !isToyPage()) {
+    return null;
+  }
+  try {
+    const result = await withTimeout(
+      api.getAuthorProfile(),
+      DATA_TIMEOUT,
+      'getAuthorProfile',
+    );
+    if (result?.status !== 'ok' || !result.data) {
+      return null;
+    }
+    const data = result.data;
+    const nickname =
+      typeof data.nickname === 'string' ? data.nickname.trim() : '';
+    if (!nickname) {
+      return null;
+    }
+    return {
+      nickname,
+      avatar: typeof data.avatar === 'string' ? data.avatar : '',
+      sign: typeof data.sign === 'string' ? data.sign.trim() : '',
+      follower:
+        typeof data.follower === 'number' && Number.isFinite(data.follower)
+          ? data.follower
+          : 0,
+      archiveCount:
+        typeof data.archiveCount === 'number' &&
+        Number.isFinite(data.archiveCount)
+          ? data.archiveCount
+          : 0,
+    };
+  } catch (error) {
+    console.warn('[toy] getAuthorProfile failed', error);
     return null;
   }
 }

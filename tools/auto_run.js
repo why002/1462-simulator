@@ -13,6 +13,8 @@
  *
  * 原理：用 __game.path.curvature 反推每米允许的过弯速度，再按最重载重下
  * 的可用制动力向后积分成速度剖面；每个控制周期按回差决定油门或制动。
+ * 制动缸有 0.9 s 建立时间，所以控制速度再取前瞻距离内的剖面最小值，
+ * 提前收油，避免给油后再刹车时速度超调（济南发卡弯曾因此脱线）。
  * 另有一道实际倾角保护，防止 S 弯反向甩动等瞬态超限。脚本只派发空格键
  * 事件，不修改游戏内部状态。
  *
@@ -33,6 +35,7 @@
     tiltGain: 1.3,
     derailAngle: (60 * Math.PI) / 180,
     brake: 42,
+    brakeRampTime: 0.9,
     massFactor: 1.24,
   };
 
@@ -44,6 +47,7 @@
     speedBand: 1.5,
     controlHz: 30,
     tiltGuardDeg: 0,
+    rampLookahead: TUNING.brakeRampTime,
     log: true,
   };
 
@@ -95,6 +99,8 @@
   /**
    * 每米允许速度：按目标倾角反解 v²κ / g = tan(θ / gain)。
    * 再从线路末端向前积分 v² = v_next² + 2·a·ds，得到能安全减速的剖面。
+   * 制动缸建立期间的实际减速度只有满制动的一半左右，因此控制速度取
+   * 未来一个建立时间距离内的剖面最小值，提前收油补偿这段延迟。
    */
   function buildProfile() {
     const game = window.__game;
@@ -113,15 +119,33 @@
     }
 
     const planDecel = (TUNING.brake / TUNING.massFactor) * options.planDecelFactor;
-    const result = new Float32Array(count);
+    const profile = new Float32Array(count);
     let next = curveLimit[count - 1];
-    result[count - 1] = next;
+    profile[count - 1] = next;
     for (let i = count - 2; i >= 0; i -= 1) {
       const feasible = Math.sqrt(next * next + 2 * planDecel);
       next = Math.min(curveLimit[i], feasible);
-      result[i] = next;
+      profile[i] = next;
     }
-    return result;
+
+    if (options.rampLookahead <= 0) {
+      return profile;
+    }
+    const control = new Float32Array(count);
+    for (let i = 0; i < count; i += 1) {
+      const reach = Math.min(
+        count - 1,
+        i + Math.ceil(profile[i] * options.rampLookahead),
+      );
+      let limit = profile[i];
+      for (let j = i + 1; j <= reach; j += 1) {
+        if (profile[j] < limit) {
+          limit = profile[j];
+        }
+      }
+      control[i] = limit;
+    }
+    return control;
   }
 
   function closeHelp() {
@@ -261,6 +285,16 @@
       4,
       Math.min(60, Number(options.controlHz) || DEFAULTS.controlHz),
     );
+    const rampLookahead = Number(options.rampLookahead);
+    options.rampLookahead = Math.max(
+      0,
+      Math.min(
+        2,
+        Number.isFinite(rampLookahead)
+          ? rampLookahead
+          : DEFAULTS.rampLookahead,
+      ),
+    );
 
     const guard = Number(options.tiltGuardDeg) || options.tiltLimitDeg + 8;
     const guardDeg = Math.min(
@@ -292,7 +326,7 @@
 
     if (options.log) {
       console.log(
-        `[auto-run] 开始：过弯目标倾角 ${options.tiltLimitDeg}° · 速度系数 ${options.speedFactor} · 倾角保护 ${((guardAngle * 180) / Math.PI).toFixed(0)}°`,
+        `[auto-run] 开始：过弯目标倾角 ${options.tiltLimitDeg}° · 速度系数 ${options.speedFactor} · 倾角保护 ${((guardAngle * 180) / Math.PI).toFixed(0)}° · 制动预瞄 ${options.rampLookahead.toFixed(2)} s`,
       );
     }
     return api.status();
