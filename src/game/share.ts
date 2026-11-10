@@ -8,6 +8,7 @@ import {
   getToyQrCode,
   isToyPage,
   loadToyAuthorProfile,
+  loadToyUserProfile,
   saveToyImage,
   shareToyPage,
   supportsToyAbility,
@@ -250,13 +251,17 @@ export function createShareController(options: ShareOptions): ShareController {
     button.disabled = true;
     try {
       const target = shareTarget();
-      const [qrBase64, author] = await Promise.all([
+      const [qrBase64, author, user] = await Promise.all([
         getToyQrCode(target.path),
         loadToyAuthorProfile(),
+        loadToyUserProfile(),
       ]);
-      const [qrImage, avatarImage] = await Promise.all([
+      const [qrImage, userAvatar, authorAvatar] = await Promise.all([
         qrBase64 ? loadImage(qrBase64) : Promise.resolve(null),
-        author?.avatar ? loadImage(author.avatar, true) : Promise.resolve(null),
+        user?.avatar ? loadImage(user.avatar, true) : Promise.resolve(null),
+        !user && author?.avatar
+          ? loadImage(author.avatar, true)
+          : Promise.resolve(null),
       ]);
       if (currentEpoch !== epoch) {
         return;
@@ -264,13 +269,16 @@ export function createShareController(options: ShareOptions): ShareController {
       const dataUrl = renderResultImage({
         ...options.getPoster(),
         qrImage,
+        user: user
+          ? { nickname: user.nickname, avatarImage: userAvatar }
+          : null,
         author: author
           ? {
               nickname: author.nickname,
               sign: author.sign,
               follower: author.follower,
               archiveCount: author.archiveCount,
-              avatarImage,
+              avatarImage: authorAvatar,
             }
           : null,
       });

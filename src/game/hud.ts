@@ -1109,6 +1109,11 @@ function formatFollowerCount(value: number): string {
   return `${(value / 10000).toFixed(1).replace(/\.0$/, '')}万`;
 }
 
+export interface ResultUserData {
+  nickname: string;
+  avatarImage: HTMLImageElement | null;
+}
+
 export interface ResultAuthorData {
   nickname: string;
   sign: string;
@@ -1129,6 +1134,7 @@ export interface ResultShareData {
   isNewBest: boolean;
   mapCanvas: HTMLCanvasElement;
   qrImage?: HTMLImageElement | null;
+  user?: ResultUserData | null;
   author?: ResultAuthorData | null;
 }
 
@@ -1136,8 +1142,9 @@ export function renderResultImage(data: ResultShareData): string | null {
   const width = 1200;
   const mainHeight = 1200;
   const hasQr = Boolean(data.qrImage);
+  const hasUser = Boolean(data.user);
   const hasAuthor = Boolean(data.author);
-  const height = hasQr || hasAuthor ? 1520 : mainHeight;
+  const height = hasQr || hasUser || hasAuthor ? 1520 : mainHeight;
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -1221,6 +1228,44 @@ export function renderResultImage(data: ResultShareData): string | null {
       fitted = fitted.slice(0, -1);
     }
     return `${fitted}…`;
+  };
+
+  const drawAvatar = (
+    image: HTMLImageElement | null,
+    nickname: string,
+    x: number,
+    y: number,
+    size: number,
+  ): void => {
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+    if (image) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.drawImage(image, x, y, size, size);
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(cx, cy, size / 2 - 1, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(61, 220, 132, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      return;
+    }
+    ctx.beginPath();
+    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(61, 220, 132, 0.16)';
+    ctx.fill();
+    text(
+      nickname.slice(0, 1) || '?',
+      cx,
+      cy,
+      Math.round(size * 0.42),
+      green,
+      'center',
+      700,
+    );
   };
 
   text('京沪线 · 1462', width / 2, 92, 26, green, 'center', 600);
@@ -1339,7 +1384,7 @@ export function renderResultImage(data: ResultShareData): string | null {
   text(`上海 → 北京 · ${data.distanceText}`, leftX, footerY, 20, muted, 'left', 500);
   text('《京沪神车 1462》', width - leftX, footerY, 20, muted, 'right', 500);
 
-  if (hasQr || hasAuthor) {
+  if (hasQr || hasUser || hasAuthor) {
     const cardY = mainHeight + 20;
     const cardH = 280;
     roundedRect(ctx, 2, cardY, width - 4, cardH, 34);
@@ -1378,46 +1423,54 @@ export function renderResultImage(data: ResultShareData): string | null {
       infoRight = captionX - captionWidth - 40;
     }
 
-    if (data.author) {
+    if (data.user) {
+      const user = data.user;
+      const avatarSize = 96;
+      const avatarX = leftX;
+      const avatarY = cardY + (cardH - avatarSize) / 2;
+      drawAvatar(user.avatarImage, user.nickname, avatarX, avatarY, avatarSize);
+
+      const lines: Array<{
+        value: string;
+        size: number;
+        color: string;
+        weight: number;
+      }> = [{ value: user.nickname, size: 32, color: ink, weight: 700 }];
+      if (data.author) {
+        lines.push({
+          value: `作者：${data.author.nickname}`,
+          size: 18,
+          color: muted,
+          weight: 500,
+        });
+      }
+      const infoX = avatarX + avatarSize + 24;
+      const maxWidth = Math.max(120, infoRight - infoX);
+      const gap = 10;
+      const totalHeight =
+        lines.reduce((sum, line) => sum + line.size, 0) +
+        gap * (lines.length - 1);
+      let lineTop = cardY + cardH / 2 - totalHeight / 2;
+      for (const line of lines) {
+        text(
+          fit(line.value, maxWidth, line.size, line.weight),
+          infoX,
+          lineTop + line.size / 2,
+          line.size,
+          line.color,
+          'left',
+          line.weight,
+        );
+        lineTop += line.size + gap;
+      }
+    } else if (data.author) {
+      // 拿不到当前用户资料时退回作者卡，避免底栏只剩二维码。
       const author = data.author;
       const avatarSize = 96;
       const avatarX = leftX;
       const avatarY = cardY + (cardH - avatarSize) / 2;
-      const avatarCx = avatarX + avatarSize / 2;
       const avatarCy = avatarY + avatarSize / 2;
-      if (author.avatarImage) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(avatarCx, avatarCy, avatarSize / 2, 0, Math.PI * 2);
-        ctx.clip();
-        ctx.drawImage(
-          author.avatarImage,
-          avatarX,
-          avatarY,
-          avatarSize,
-          avatarSize,
-        );
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(avatarCx, avatarCy, avatarSize / 2 - 1, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(61, 220, 132, 0.5)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.arc(avatarCx, avatarCy, avatarSize / 2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(61, 220, 132, 0.16)';
-        ctx.fill();
-        text(
-          author.nickname.slice(0, 1) || '?',
-          avatarCx,
-          avatarCy,
-          40,
-          green,
-          'center',
-          700,
-        );
-      }
+      drawAvatar(author.avatarImage, author.nickname, avatarX, avatarY, avatarSize);
 
       const meta: string[] = [];
       if (author.follower > 0) {

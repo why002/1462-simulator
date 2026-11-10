@@ -21,6 +21,11 @@ export interface ToyAuthorProfile {
   archiveCount: number;
 }
 
+export interface ToyUserProfile {
+  nickname: string;
+  avatar: string;
+}
+
 export interface ToyApi {
   isSupport?(ability: string): Promise<boolean>;
   share?(req: { path: string }): Promise<void>;
@@ -40,6 +45,11 @@ export interface ToyApi {
     limit?: number;
   }): Promise<ToyRankItem[]>;
   getMyRank?(req?: { board?: number; period?: RankPeriod }): Promise<ToyMyRank>;
+  getUserProfile?(): Promise<{
+    avatar?: string;
+    nickname?: string;
+    toyOpenId?: string;
+  }>;
   getAuthorProfile?(): Promise<{
     status: string;
     data?: {
@@ -83,6 +93,8 @@ export interface ToyRankSnapshot {
 export const TIME_BOARD = 1;
 const MAX_SCORE = 16_777_215;
 const DATA_TIMEOUT = 8000;
+/** 首次调用会弹出 B 站资料授权确认框，等待用户操作需要更长时间。 */
+const PROFILE_TIMEOUT = 20000;
 
 function withTimeout<T>(
   promise: Promise<T>,
@@ -288,6 +300,32 @@ export async function getToyQrCode(path: string): Promise<string | null> {
     return result.base64;
   } catch (error) {
     console.warn('[toy] getQrCode failed', error);
+    return null;
+  }
+}
+
+export async function loadToyUserProfile(): Promise<ToyUserProfile | null> {
+  const api = getToy();
+  if (!api?.getUserProfile || !isToyPage()) {
+    return null;
+  }
+  try {
+    const result = await withTimeout(
+      api.getUserProfile(),
+      PROFILE_TIMEOUT,
+      'getUserProfile',
+    );
+    const nickname =
+      typeof result?.nickname === 'string' ? result.nickname.trim() : '';
+    if (!nickname) {
+      return null;
+    }
+    return {
+      nickname,
+      avatar: typeof result.avatar === 'string' ? result.avatar : '',
+    };
+  } catch (error) {
+    console.warn('[toy] getUserProfile failed', error);
     return null;
   }
 }
