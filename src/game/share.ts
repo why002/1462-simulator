@@ -100,6 +100,16 @@ async function copyText(text: string): Promise<boolean> {
   return copied;
 }
 
+function isMobileSaveTarget(): boolean {
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
+    return true;
+  }
+  return (
+    window.matchMedia?.('(pointer: coarse)').matches === true &&
+    window.matchMedia?.('(hover: none)').matches === true
+  );
+}
+
 export function createShareController(options: ShareOptions): ShareController {
   const overlay = getElement('share-overlay');
   const closeButton = getElement<HTMLButtonElement>('share-close');
@@ -114,6 +124,7 @@ export function createShareController(options: ShareOptions): ShareController {
 
   const labels = new Map<HTMLButtonElement, string>();
   const timers = new Set<number>();
+  let toastTimer = 0;
   let sharing = false;
   let saving = false;
   let qrToken = 0;
@@ -139,6 +150,23 @@ export function createShareController(options: ShareOptions): ShareController {
       }
     }, 1800);
     timers.add(timer);
+  }
+
+  function showSaveToast(message: string, ok: boolean): void {
+    const toast = document.getElementById('save-toast');
+    if (!toast) {
+      return;
+    }
+    toast.textContent = message;
+    toast.classList.toggle('error', !ok);
+    toast.classList.remove('show');
+    // 重新触发过渡，连续保存时提示条也会重新浮现。
+    void toast.offsetWidth;
+    toast.classList.add('show');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => {
+      toast.classList.remove('show');
+    }, 2400);
   }
 
   function isOpen(): boolean {
@@ -285,6 +313,7 @@ export function createShareController(options: ShareOptions): ShareController {
       if (!dataUrl) {
         if (currentEpoch === epoch) {
           flash(button, '生成失败');
+          showSaveToast('生成失败', false);
         }
         return;
       }
@@ -304,7 +333,9 @@ export function createShareController(options: ShareOptions): ShareController {
         if (canSave) {
           const saved = await saveToyImage(dataUrl);
           if (currentEpoch === epoch) {
-            flash(button, saved ? '已保存到相册' : '保存失败');
+            const message = saved ? '已保存到相册' : '保存失败';
+            flash(button, message);
+            showSaveToast(message, saved);
           }
           return;
         }
@@ -312,12 +343,18 @@ export function createShareController(options: ShareOptions): ShareController {
 
       const downloaded = downloadDataUrl(dataUrl, fileName);
       if (currentEpoch === epoch) {
-        flash(button, downloaded ? '已下载' : '保存失败');
+        let message = '保存失败';
+        if (downloaded) {
+          message = isMobileSaveTarget() ? '已保存到相册' : '已下载';
+        }
+        flash(button, message);
+        showSaveToast(message, downloaded);
       }
     } catch (error) {
       console.warn('[share] save failed', error);
       if (currentEpoch === epoch) {
         flash(button, '保存失败');
+        showSaveToast('保存失败', false);
       }
     } finally {
       saving = false;
@@ -375,6 +412,9 @@ export function createShareController(options: ShareOptions): ShareController {
     epoch += 1;
     sharing = false;
     saving = false;
+    window.clearTimeout(toastTimer);
+    toastTimer = 0;
+    document.getElementById('save-toast')?.classList.remove('show', 'error');
     for (const timer of timers) {
       window.clearTimeout(timer);
     }

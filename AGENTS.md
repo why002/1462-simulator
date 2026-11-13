@@ -102,7 +102,7 @@ npm run preview   # http://localhost:4173/
 - 完赛自动提交一次，不要额外重复提交。结算页排名行显示 pending / 全站第 N 名 / 未登录 / 未授权 / 环境不支持 / 繁忙 / 上传失败，点击打开排行榜。`getMyRank` 是否上榜必须看 `ranked`，不能看 score。
 - 分享链接路径固定为 `index.html?c=<十分之一秒>`；开始页读取 `c` 显示「分享纪录 X · 来挑战」，只用 textContent 写入，不要拼接 HTML，也不要把昵称等用户输入放进 query。
 - App 内分享优先 `toy.share`；Toy 网页端打开二维码/复制链接弹层，非 Toy 网页在支持 `navigator.share` 时使用系统分享。`getQrCode` 只在 Toy 路径下调用。
-- 成绩图保存：App 内用 `saveImageToAlbum`（base64Data），Web 用 `<a download>`；不要强制两者走同一路径。
+- 成绩图保存：App 内用 `saveImageToAlbum`（base64Data），Web 用 `<a download>`；不要强制两者走同一路径。保存完成用 `#save-toast` 显示提示条：相册成功为「已保存到相册」，Web 下载在手机端显示「已保存到相册」、电脑端显示「已下载」，生成或保存失败显示「生成失败 / 保存失败」；提示约 2.4 s 后消失，`reset()` 时清除。
 - 保存成绩图时，Toy 环境并行调用 `getQrCode`（挑战链接 `index.html?c=...`）、`getAuthorProfile` 与 `getUserProfile`，在原始 1200×1200 海报下方追加底栏：以当前分享用户的头像 + 昵称为主，作者（UP 主）缩成一行「作者：昵称」小字，右侧保留挑战二维码，成图 1200×1520；拿不到当前用户资料时退回原作者卡（头像、昵称、签名、粉丝/稿件）；非 Toy 环境保持原图。头像必须以 `crossOrigin='anonymous'` 加载，失败时用昵称首字占位，避免污染 canvas 导致 `toDataURL` 失败。
 - `submitScore`、`share`、`saveImageToAlbum`、`getUserProfile` 可能等待平台授权 / 分享 / 相册弹窗，**不要加短客户端超时**；只有 `getRankList`、`getMyRank`、`getQrCode`、`isSupport` 这类查询使用 8 s / 4 s 超时。`getUserProfile` 首次会弹资料确认框，单独放宽到 20 s。真实 SDK 在非 Toy 环境 handshake 约 10 s 才失败，所以路径判定是首层保护。
 - 手机端顶栏隐藏「榜」按钮以保留 LED 宽度，入口放在开始提示「查看排行榜」，结算页排名行也始终可进入；手机点入口不能触发加速（`isUiTarget` 必须包含 `#rank-hint`）。
