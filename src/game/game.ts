@@ -825,14 +825,52 @@ export function createGame(
     }
   });
 
+  let touchHolding = false;
   window.addEventListener('pointerdown', (event) => {
     if (!isUiTarget(event.target)) {
       press();
     }
   });
   window.addEventListener('pointerup', release);
-  window.addEventListener('pointercancel', release);
+  window.addEventListener('pointercancel', () => {
+    // 触摸按住时忽略浏览器的 pointercancel：长按手势可能误取消，真正抬手由 touchend 处理。
+    if (!touchHolding) {
+      release();
+    }
+  });
   window.addEventListener('blur', release);
+
+  // 部分手机 WebView 不派发 Pointer Events，或长按会被系统手势取消；
+  // 用触摸事件兜底，并阻止长按触发的滚动/菜单。
+  window.addEventListener(
+    'touchstart',
+    (event) => {
+      if (isUiTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      touchHolding = true;
+      press();
+    },
+    { passive: false },
+  );
+  window.addEventListener(
+    'touchmove',
+    (event) => {
+      if (touchHolding) {
+        event.preventDefault();
+      }
+    },
+    { passive: false },
+  );
+  const endTouch = (event: TouchEvent): void => {
+    if (event.type === 'touchcancel' || event.touches.length === 0) {
+      touchHolding = false;
+      release();
+    }
+  };
+  window.addEventListener('touchend', endTouch);
+  window.addEventListener('touchcancel', endTouch);
   window.addEventListener('contextmenu', (event) => event.preventDefault());
   document.addEventListener('selectstart', (event) => {
     if (event.target instanceof Element && event.target.closest('#share-link')) {
