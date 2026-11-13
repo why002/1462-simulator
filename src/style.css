@@ -1998,3 +1998,46 @@ body {
     opacity: 1;
   }
 }
+
+/* 竖屏窄屏：到站提示放在左上角，与小地图（右上）左右错开。 */
+@media (orientation: portrait) and (max-width: 520px) {
+  .station-popup-layer {
+    inset: calc(max(12px, env(safe-area-inset-top)) + 110px) auto auto max(12px, env(safe-area-inset-left));
+    width: calc(100vw - 166px);
+    height: auto;
+    display: block;
+  }
+
+  .station-popup {
+    width: min(100%, 240px);
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 14px;
+  }
+}
+
+@media (orientation: portrait) and (min-width: 521px) and (max-width: 900px) {
+  .station-popup-layer {
+    inset: calc(max(16px, env(safe-area-inset-top)) + 124px) auto auto max(16px, env(safe-area-inset-left));
+    width: calc(100vw - 242px);
+    height: auto;
+    display: block;
+  }
+
+  .station-popup {
+    width: min(100%, 260px);
+    min-width: 0;
+    padding: 11px 16px;
+    border-radius: 14px;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 354px) {
+  .popup-name {
+    font-size: 26px;
+  }
+
+  .popup-meta {
+    font-size: 11px;
+  }
+}
