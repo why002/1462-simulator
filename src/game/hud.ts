@@ -145,7 +145,7 @@ export function createLedBoard(
       return;
     }
 
-    const compact = width < 160;
+    const compact = width < 160 || height < 38;
     const pitchCss = compact ? 2 : 3;
     const pitchDevice = Math.max(2, Math.round(pitchCss * dpr));
     stepDevice = pitchDevice;
