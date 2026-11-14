@@ -19,6 +19,12 @@ body,
   margin: 0;
 }
 
+html,
+body {
+  /* 禁掉双击缩放；可滚动弹层仍由自身 touch-action 决定滚动。 */
+  touch-action: manipulation;
+}
+
 body {
   background: #0a1410;
   color: var(--ink);

@@ -431,15 +431,33 @@ export function createAudio(): AudioEngine {
     }
   }
 
+  // 音频任何一步失败都只影响声音；不能把异常抛回游戏循环（否则整局会停住）。
+  function guard<Args extends unknown[]>(
+    label: string,
+    fn: (...args: Args) => void,
+  ): (...args: Args) => void {
+    let warned = false;
+    return (...args: Args) => {
+      try {
+        fn(...args);
+      } catch (error) {
+        if (!warned) {
+          warned = true;
+          console.warn(`[audio] ${label}失败，已跳过`, error);
+        }
+      }
+    };
+  }
+
   return {
-    unlock,
-    update,
-    horn,
-    chime,
-    crash,
-    fanfare,
+    unlock: guard('音频初始化', unlock),
+    update: guard('音效更新', update),
+    horn: guard('鸣笛', horn),
+    chime: guard('到站音', chime),
+    crash: guard('脱线音', crash),
+    fanfare: guard('结算音', fanfare),
     toggleMute,
-    reset,
+    reset: guard('音频复位', reset),
     get muted() {
       return muted;
     },

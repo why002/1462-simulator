@@ -780,11 +780,15 @@ export function createGame(
     ) {
       return;
     }
-    audio.unlock();
+    // 先进入加速状态再碰音频：音频初始化慢或失败都不能阻塞操作。
+    const first = !started;
     pressing = true;
-    if (!started) {
+    if (first) {
       started = true;
       startHint.classList.add('hidden');
+    }
+    audio.unlock();
+    if (first) {
       audio.horn();
     }
   }
@@ -826,19 +830,56 @@ export function createGame(
   });
 
   let touchHolding = false;
-  window.addEventListener('pointerdown', (event) => {
-    if (!isUiTarget(event.target)) {
+  // 捕获阶段监听：任何弹层、B 站 Toy 容器或系统手势包装层都无法拦下按压。
+  const inputOptions = { capture: true, passive: false } as const;
+
+  window.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        return;
+      }
+      if (!isUiTarget(event.target)) {
+        press();
+      }
+    },
+    inputOptions,
+  );
+  window.addEventListener('pointerup', release, inputOptions);
+  window.addEventListener(
+    'pointercancel',
+    () => {
+      // 触摸按住时忽略浏览器的 pointercancel：长按手势可能误取消，真正抬手由 touchend 处理。
+      if (!touchHolding) {
+        release();
+      }
+    },
+    inputOptions,
+  );
+  // iOS 弹出工具栏或切换焦点时会触发 blur，不能因此松开正在按住的触摸。
+  window.addEventListener(
+    'blur',
+    () => {
+      if (!touchHolding) {
+        release();
+      }
+    },
+    true,
+  );
+
+  // 部分 WebView 不派发 Pointer Events；鼠标事件作为另一层兜底。
+  // iOS 在 touchstart 被 preventDefault 后不会再补发鼠标事件，不会重复触发。
+  window.addEventListener(
+    'mousedown',
+    (event) => {
+      if (event.button !== 0 || isUiTarget(event.target)) {
+        return;
+      }
       press();
-    }
-  });
-  window.addEventListener('pointerup', release);
-  window.addEventListener('pointercancel', () => {
-    // 触摸按住时忽略浏览器的 pointercancel：长按手势可能误取消，真正抬手由 touchend 处理。
-    if (!touchHolding) {
-      release();
-    }
-  });
-  window.addEventListener('blur', release);
+    },
+    inputOptions,
+  );
+  window.addEventListener('mouseup', release, inputOptions);
 
   // 部分手机 WebView 不派发 Pointer Events，或长按会被系统手势取消；
   // 用触摸事件兜底，并阻止长按触发的滚动/菜单。
@@ -852,7 +893,7 @@ export function createGame(
       touchHolding = true;
       press();
     },
-    { passive: false },
+    inputOptions,
   );
   window.addEventListener(
     'touchmove',
@@ -861,7 +902,7 @@ export function createGame(
         event.preventDefault();
       }
     },
-    { passive: false },
+    inputOptions,
   );
   const endTouch = (event: TouchEvent): void => {
     if (event.type === 'touchcancel' || event.touches.length === 0) {
@@ -869,8 +910,12 @@ export function createGame(
       release();
     }
   };
-  window.addEventListener('touchend', endTouch);
-  window.addEventListener('touchcancel', endTouch);
+  window.addEventListener('touchend', endTouch, inputOptions);
+  window.addEventListener('touchcancel', endTouch, inputOptions);
+  // 双指缩放会中断触摸流，游戏里直接禁掉 Safari 的捏合手势。
+  document.addEventListener('gesturestart', (event) => event.preventDefault(), {
+    passive: false,
+  });
   window.addEventListener('contextmenu', (event) => event.preventDefault());
   document.addEventListener('selectstart', (event) => {
     if (event.target instanceof Element && event.target.closest('#share-link')) {

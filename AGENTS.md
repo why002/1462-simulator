@@ -91,7 +91,8 @@ npm run preview   # http://localhost:4173/
 - 沿线房屋只围绕车站布置，等级越高数量越多、高度越高（特/一/二/三）；树木和农田按车站等级与距离加权，高级站附近明显稀疏，低级站和无站区间更密。任何场景实例都要做轨道净空检查，检查对象包括 1462 经路和济南京沪正线，避免房屋/树木/农田压轨。农田每块带 `0.03 + rand() × 0.08` 的随机抬升，底面不得低于地面，避免田块共面 z-fighting 闪烁。
 - 追车相机 FOV = `fovBase 55` + `fovSpeedGain 8 × v/vMax` + 纵向加速度项：加速变宽、制动收窄（上限 +6° / −5°，增益 `fovAccelGain 0.7`），加速度经 `fovAccelSmoothTime 0.45 s` 平滑，用于速度感；平滑时间不要调回 0.18 s，按下加速时 FOV 会跳得太快。调试视角各自固定 FOV，不受影响。
 - 过弯时相机向弯外“甩出”：横向偏移 `cameraSwingDistance 4 m`、外倾 `cameraSwingRoll 5°`，强度为 `v²|κ| / cameraSwingAccel 9`（0–1），方向取 `sign(κ) × normal`（左弯向右外移并顺时针滚转），经 `cameraSwingSmoothTime 0.3 s` 平滑；直线回正。
-- 触屏按住加速同时监听 Pointer Events 和 Touch Events：部分手机 WebView 不派发 `pointerdown`，长按也可能触发 `pointercancel`。非 UI 目标的 `touchstart` / `touchmove` 要 `preventDefault()` 并保持 `pressing`；触摸按住期间忽略 `pointercancel`，真正抬手由 `touchend` 释放。UI 按钮与可滚动弹层（`#result`、`#help-overlay`、`#rank-overlay`、`#share-overlay` 等）不得拦截触摸，否则按钮和列表滚动会失效。
+- 触屏按住加速同时监听 Pointer Events、Touch Events 和鼠标事件兜底，全部挂在**捕获阶段**（`capture: true`）：部分手机 WebView 不派发 `pointerdown`，长按也可能触发 `pointercancel`，B 站 Toy 容器或弹层也不能拦掉按压。非 UI 目标的 `touchstart` / `touchmove` 要 `preventDefault()` 并保持 `pressing`；触摸按住期间忽略 `pointercancel`（真正抬手由 `touchend` 释放）和 `blur`（iOS 工具栏弹出会触发 blur），否则会出现“长按车不动”。UI 按钮与可滚动弹层（`#result`、`#help-overlay`、`#rank-overlay`、`#share-overlay` 等）不得拦截触摸，否则按钮和列表滚动会失效。
+- `press()` 必须**先**置 `pressing` / `started` 再调用音频；`audio.ts` 导出的每个方法都经 `guard()` 包裹，音频初始化或播放失败只静音、不抛异常。Three 的动画循环一旦抛错就不再调度下一帧，音效异常会表现为“整局卡死/车不动”。
 - 固定晴朗午后光照；装饰性地标（东方明珠、虎丘塔、泰山山脊、天津之眼、北京站钟楼等）暂不做。
 - 不新增外部图片/字体/服务端；贴图用 Canvas，音效用 Web Audio 合成。唯一的第三方脚本是 B 站官方 Toy SDK（`toy-sdk.js`），用于排行榜与分享。
 
