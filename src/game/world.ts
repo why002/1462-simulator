@@ -621,8 +621,9 @@ function buildRiver(scene: THREE.Scene, path: PathData, river: RiverCrossing): v
     roughness: 0.45,
     metalness: 0.55,
   });
-  const trussHeight = river.kind === 'yangtze' ? 5.6 : 5.2;
-  const panel = river.kind === 'yangtze' ? 8.5 : 4.3;
+  // 桁架顶必须高于接触网（导线 6.28 / 承力索 6.98），否则线路会从桥顶穿出。
+  const trussHeight = river.kind === 'yangtze' ? 8.8 : 8.0;
+  const panel = river.kind === 'yangtze' ? 8.5 : 6.5;
   const panels = Math.max(2, Math.round(river.bridgeLength / panel));
   const panelLength = river.bridgeLength / panels;
   const parts: THREE.BufferGeometry[] = [];
