@@ -19,6 +19,13 @@ interface RibbonLine {
 
 export interface World {
   updateGuideBand(speed: number): void;
+  updateLandmarks(dt: number): void;
+}
+
+interface LandmarkReserve {
+  x: number;
+  z: number;
+  radius: number;
 }
 
 export function buildWorld(
@@ -36,7 +43,8 @@ export function buildWorld(
   buildTrack(scene, path);
   buildCatenary(scene, path);
   const updateGuideBand = buildGuideBand(scene, path);
-  buildScenery(scene, path, stations);
+  const landmarks = buildLandmarks(scene, path);
+  buildScenery(scene, path, stations, landmarks.reserves);
   buildGates(scene, path);
   buildStations(scene, path, stations);
   for (const river of path.riverCrossings) {
@@ -44,7 +52,7 @@ export function buildWorld(
   }
   buildMainlineTrack(scene, path);
 
-  return { updateGuideBand };
+  return { updateGuideBand, updateLandmarks: landmarks.update };
 }
 
 function addLights(scene: THREE.Scene): void {
@@ -948,20 +956,30 @@ function buildCatenaryPoleGeometry(): THREE.BufferGeometry {
   return merged;
 }
 
+type LandmarkClearCheck = (x: number, z: number, margin?: number) => boolean;
+
 function buildScenery(
   scene: THREE.Scene,
   path: PathData,
   stations: StationOnRoute[],
+  landmarkReserves: LandmarkReserve[],
 ): void {
   const rand = mulberry32(0x1462);
   const nearRiver = (s: number): boolean =>
     path.riverCrossings.some(
       (river) => Math.abs(s - river.s) < river.bridgeLength * 0.5 + 90,
     );
+  const clearOfLandmarks: LandmarkClearCheck = (x, z, margin = 0) =>
+    landmarkReserves.every((reserve) => {
+      const dx = x - reserve.x;
+      const dz = z - reserve.z;
+      const radius = reserve.radius + margin;
+      return dx * dx + dz * dz >= radius * radius;
+    });
 
-  buildFields(scene, path, stations, rand, nearRiver);
-  buildTrees(scene, path, stations, rand, nearRiver);
-  buildBuildings(scene, path, stations, rand, nearRiver);
+  buildFields(scene, path, stations, rand, nearRiver, clearOfLandmarks);
+  buildTrees(scene, path, stations, rand, nearRiver, clearOfLandmarks);
+  buildBuildings(scene, path, stations, rand, nearRiver, clearOfLandmarks);
 }
 
 const GRADE_RADIUS: Record<StationOnRoute['grade'], number> = {
@@ -1023,6 +1041,7 @@ function buildFields(
   stations: StationOnRoute[],
   rand: () => number,
   nearRiver: (s: number) => boolean,
+  clearOfLandmarks: LandmarkClearCheck,
 ): void {
   const count = 780;
   const mesh = new THREE.InstancedMesh(
@@ -1052,6 +1071,9 @@ function buildFields(
     const offset = width * 0.5 + 10 + rand() * 220;
     const x = sample.x + sample.normalX * side * offset;
     const z = sample.z + sample.normalZ * side * offset;
+    if (!clearOfLandmarks(x, z, Math.hypot(width, depth) * 0.5)) {
+      continue;
+    }
     if (!isClearOfTrack(path, x, z, Math.hypot(width, depth) * 0.5 + 8)) {
       continue;
     }
@@ -1082,6 +1104,7 @@ function buildTrees(
   stations: StationOnRoute[],
   rand: () => number,
   nearRiver: (s: number) => boolean,
+  clearOfLandmarks: LandmarkClearCheck,
 ): void {
   const count = 1400;
   const trunkGeometry = new THREE.CylinderGeometry(0.24, 0.32, 2.4, 6);
@@ -1120,6 +1143,9 @@ function buildTrees(
     const scale = 0.7 + rand() * 1.2;
     const x = sample.x + sample.normalX * side * offset;
     const z = sample.z + sample.normalZ * side * offset;
+    if (!clearOfLandmarks(x, z, scale * 1.9)) {
+      continue;
+    }
     if (!isClearOfTrack(path, x, z, scale * 1.9 + 10)) {
       continue;
     }
@@ -1152,6 +1178,7 @@ function buildBuildings(
   stations: StationOnRoute[],
   rand: () => number,
   nearRiver: (s: number) => boolean,
+  clearOfLandmarks: LandmarkClearCheck,
 ): void {
   interface Building {
     x: number;
@@ -1201,6 +1228,9 @@ function buildBuildings(
         const offset = Math.max(width, depth) * 0.5 + 42 + rand() * 190;
         const x = sample.x + sample.normalX * side * offset;
         const z = sample.z + sample.normalZ * side * offset;
+        if (!clearOfLandmarks(x, z, Math.hypot(width, depth) * 0.54)) {
+          continue;
+        }
         if (!isClearOfTrack(path, x, z, Math.hypot(width, depth) * 0.54 + 12)) {
           continue;
         }
@@ -1268,6 +1298,1160 @@ function buildBuildings(
   walls.frustumCulled = false;
   roofs.frustumCulled = false;
   scene.add(walls, roofs);
+}
+
+interface LandmarkSpec {
+  name: string;
+  km: number;
+  side: -1 | 1;
+  offset: number;
+  reserve: number;
+  faceTrack: boolean;
+  build: () => { group: THREE.Group; spin?: THREE.Object3D };
+}
+
+const LANDMARKS: LandmarkSpec[] = [
+  {
+    name: '东方明珠',
+    km: 35,
+    side: 1,
+    offset: 190,
+    reserve: 150,
+    faceTrack: false,
+    build: buildOrientalPearl,
+  },
+  {
+    name: '虎丘塔',
+    km: 82.5,
+    side: -1,
+    offset: 240,
+    reserve: 110,
+    faceTrack: false,
+    build: buildTigerHillPagoda,
+  },
+  {
+    name: '紫峰大厦',
+    km: 301,
+    side: 1,
+    offset: 280,
+    reserve: 140,
+    faceTrack: false,
+    build: buildZifengTower,
+  },
+  {
+    name: '泰山',
+    km: 900,
+    side: 1,
+    offset: 560,
+    reserve: 400,
+    faceTrack: false,
+    build: buildMountTai,
+  },
+  {
+    name: '天津之眼',
+    km: 1310,
+    side: -1,
+    offset: 280,
+    reserve: 250,
+    faceTrack: true,
+    build: buildTianjinEye,
+  },
+  {
+    name: '北京站钟楼',
+    km: 1462.4,
+    side: -1,
+    offset: 110,
+    reserve: 100,
+    faceTrack: false,
+    build: buildBeijingStationTowers,
+  },
+];
+
+function buildLandmarks(
+  scene: THREE.Scene,
+  path: PathData,
+): { reserves: LandmarkReserve[]; update(dt: number): void } {
+  const reserves: LandmarkReserve[] = [];
+  const spinners: THREE.Object3D[] = [];
+
+  for (const spec of LANDMARKS) {
+    const s = GAME.coreStart + spec.km * GAME.metersPerKm;
+    const sample = path.sampleAt(s);
+    let offset = spec.offset;
+    let x = 0;
+    let z = 0;
+    let clear = false;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      x = sample.x + sample.normalX * spec.side * offset;
+      z = sample.z + sample.normalZ * spec.side * offset;
+      if (isClearOfTrack(path, x, z, spec.reserve + 10)) {
+        clear = true;
+        break;
+      }
+      offset += 45;
+    }
+    if (!clear) {
+      continue;
+    }
+
+    const { group, spin } = spec.build();
+    group.name = `landmark-${spec.name}`;
+    group.position.set(x, 0, z);
+    group.rotation.y = spec.faceTrack
+      ? Math.atan2(-spec.side * sample.normalX, -spec.side * sample.normalZ)
+      : sample.heading;
+    scene.add(group);
+    reserves.push({ x, z, radius: spec.reserve });
+    if (spin) {
+      spinners.push(spin);
+    }
+  }
+
+  return {
+    reserves,
+    update(dt: number): void {
+      for (const spinner of spinners) {
+        spinner.rotation.z -= dt * 0.16;
+      }
+    },
+  };
+}
+
+function addBarBetween(
+  parts: THREE.BufferGeometry[],
+  radius: number,
+  from: THREE.Vector3,
+  to: THREE.Vector3,
+  radialSegments = 6,
+): void {
+  const direction = new THREE.Vector3().subVectors(to, from);
+  const geometry = new THREE.CylinderGeometry(
+    radius,
+    radius,
+    direction.length(),
+    radialSegments,
+  );
+  geometry.applyQuaternion(
+    new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      direction.clone().normalize(),
+    ),
+  );
+  geometry.translate(
+    (from.x + to.x) * 0.5,
+    (from.y + to.y) * 0.5,
+    (from.z + to.z) * 0.5,
+  );
+  parts.push(geometry);
+}
+
+function finishMerged(
+  parts: THREE.BufferGeometry[],
+  material: THREE.Material,
+  label: string,
+): THREE.Mesh {
+  const merged = mergeGeometries(parts, false);
+  if (!merged) {
+    throw new Error(`Failed to build ${label} geometry`);
+  }
+  return new THREE.Mesh(merged, material);
+}
+
+function buildOrientalPearl(): { group: THREE.Group } {
+  const group = new THREE.Group();
+  const shaftMaterial = new THREE.MeshStandardMaterial({
+    color: 0xcfc3c6,
+    roughness: 0.42,
+    metalness: 0.35,
+  });
+  const sphereMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: makePearlTexture(),
+    roughness: 0.3,
+    metalness: 0.2,
+    emissive: 0x2a0715,
+    emissiveIntensity: 0.28,
+  });
+  const trimMaterial = new THREE.MeshStandardMaterial({
+    color: 0xe4dcde,
+    roughness: 0.35,
+    metalness: 0.55,
+  });
+  const plazaMaterial = new THREE.MeshStandardMaterial({
+    color: 0xb9b4ad,
+    roughness: 0.95,
+  });
+
+  const shaftParts: THREE.BufferGeometry[] = [];
+  const trimParts: THREE.BufferGeometry[] = [];
+  const legPoints: THREE.Vector3[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const angle = (i / 3) * Math.PI * 2 + Math.PI / 6;
+    const from = new THREE.Vector3(Math.cos(angle) * 11, 1.2, Math.sin(angle) * 11);
+    const to = new THREE.Vector3(Math.cos(angle) * 3.4, 30, Math.sin(angle) * 3.4);
+    addBarBetween(shaftParts, 1.15, from, to, 8);
+    legPoints.push(from.clone().lerp(to, 0.36));
+  }
+  for (let i = 0; i < 3; i += 1) {
+    addBarBetween(trimParts, 0.18, legPoints[i], legPoints[(i + 1) % 3], 5);
+  }
+  const shaft = new THREE.CylinderGeometry(1.15, 2.9, 58, 12);
+  shaft.translate(0, 56, 0);
+  shaftParts.push(shaft);
+  const antenna = new THREE.CylinderGeometry(0.22, 0.55, 12, 8);
+  antenna.translate(0, 89, 0);
+  shaftParts.push(antenna);
+  group.add(finishMerged(shaftParts, shaftMaterial, 'Oriental Pearl shaft'));
+
+  const sphereParts: THREE.BufferGeometry[] = [];
+  const lower = new THREE.SphereGeometry(8.6, 20, 14);
+  lower.translate(0, 31, 0);
+  const upper = new THREE.SphereGeometry(6.0, 18, 12);
+  upper.translate(0, 62, 0);
+  const top = new THREE.SphereGeometry(3.1, 14, 10);
+  top.translate(0, 82, 0);
+  sphereParts.push(lower, upper, top);
+  const miniSpheres: Array<[number, number, number, number]> = [
+    [2.4, 43, 0, 1.25],
+    [-2.4, 47.5, 0.6, 1.05],
+    [0.5, 52, 2.4, 0.95],
+  ];
+  for (const [x, y, z, radius] of miniSpheres) {
+    const mini = new THREE.SphereGeometry(radius, 10, 8);
+    mini.translate(x, y, z);
+    sphereParts.push(mini);
+  }
+  group.add(finishMerged(sphereParts, sphereMaterial, 'Oriental Pearl spheres'));
+
+  const deckLower = new THREE.TorusGeometry(8.62, 0.22, 5, 36);
+  deckLower.rotateX(Math.PI / 2);
+  deckLower.translate(0, 31, 0);
+  const deckUpper = new THREE.TorusGeometry(6.02, 0.16, 5, 30);
+  deckUpper.rotateX(Math.PI / 2);
+  deckUpper.translate(0, 62, 0);
+  trimParts.push(deckLower, deckUpper);
+  const tip = new THREE.SphereGeometry(0.4, 8, 6);
+  tip.translate(0, 95.4, 0);
+  trimParts.push(tip);
+  group.add(finishMerged(trimParts, trimMaterial, 'Oriental Pearl trim'));
+
+  const plaza = new THREE.CylinderGeometry(14.5, 15.5, 1.2, 24);
+  plaza.translate(0, 0.6, 0);
+  const plazaRim = new THREE.CylinderGeometry(15.8, 16.4, 0.5, 24);
+  plazaRim.translate(0, 0.25, 0);
+  group.add(finishMerged([plaza, plazaRim], plazaMaterial, 'Oriental Pearl plaza'));
+
+  return { group };
+}
+
+function buildTigerHillPagoda(): { group: THREE.Group } {
+  const group = new THREE.Group();
+  const brickMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: makeBrickTexture(),
+    roughness: 0.92,
+  });
+  const eaveMaterial = new THREE.MeshStandardMaterial({
+    color: 0x5f574b,
+    roughness: 0.85,
+  });
+  const trimMaterial = new THREE.MeshStandardMaterial({
+    color: 0xe6ddc8,
+    roughness: 0.9,
+  });
+  const windowMaterial = new THREE.MeshStandardMaterial({
+    color: 0x2f2a24,
+    roughness: 0.9,
+  });
+  const stoneMaterial = new THREE.MeshStandardMaterial({
+    color: 0x9c968a,
+    roughness: 1,
+  });
+
+  const brickParts: THREE.BufferGeometry[] = [];
+  const eaveParts: THREE.BufferGeometry[] = [];
+  const trimParts: THREE.BufferGeometry[] = [];
+  const windowParts: THREE.BufferGeometry[] = [];
+  const stoneParts: THREE.BufferGeometry[] = [];
+
+  const platform = new THREE.CylinderGeometry(10.2, 11.2, 1.4, 8);
+  platform.translate(0, 0.7, 0);
+  const step = new THREE.BoxGeometry(4.4, 0.55, 6);
+  step.translate(11.2, 0.28, 0);
+  stoneParts.push(platform, step);
+
+  const base = new THREE.CylinderGeometry(8.2, 8.8, 6, 8);
+  base.translate(0, 3, 0);
+  brickParts.push(base);
+
+  let y = 6;
+  let radius = 6.8;
+  for (let tier = 0; tier < 7; tier += 1) {
+    const height = 4.6 - tier * 0.2;
+    const body = new THREE.CylinderGeometry(radius * 0.9, radius, height, 8);
+    body.translate(0, y + height * 0.5, 0);
+    brickParts.push(body);
+
+    const band = new THREE.CylinderGeometry(
+      radius * 0.905,
+      radius * 0.905,
+      0.5,
+      8,
+    );
+    band.translate(0, y + height - 0.95, 0);
+    trimParts.push(band);
+
+    const eave = new THREE.ConeGeometry(radius + 2.4, 2.1, 8);
+    eave.translate(0, y + height - 0.4, 0);
+    eaveParts.push(eave);
+    const rim = new THREE.CylinderGeometry(radius + 2.42, radius + 2.42, 0.18, 8);
+    rim.translate(0, y + height - 1.42, 0);
+    eaveParts.push(rim);
+
+    for (let face = 0; face < 4; face += 1) {
+      const angle = (face / 4) * Math.PI * 2 + Math.PI / 8;
+      const window = new THREE.BoxGeometry(0.95, 1.7, 0.24);
+      window.rotateY(Math.PI / 2 - angle);
+      window.translate(
+        Math.cos(angle) * radius * 0.93,
+        y + height * 0.52,
+        Math.sin(angle) * radius * 0.93,
+      );
+      windowParts.push(window);
+    }
+
+    y += height + 0.7;
+    radius *= 0.915;
+  }
+
+  const spire = new THREE.CylinderGeometry(0.16, 0.9, 6, 6);
+  spire.translate(0, y + 3, 0);
+  eaveParts.push(spire);
+  for (let ring = 0; ring < 3; ring += 1) {
+    const torus = new THREE.TorusGeometry(0.72 - ring * 0.18, 0.09, 4, 10);
+    torus.rotateX(Math.PI / 2);
+    torus.translate(0, y + 1.6 + ring * 1.3, 0);
+    trimParts.push(torus);
+  }
+  const finial = new THREE.SphereGeometry(0.34, 8, 6);
+  finial.translate(0, y + 6.1, 0);
+  trimParts.push(finial);
+
+  // 虎丘塔真实倾角约 3°，用整体倾斜还原标志性的斜塔轮廓。
+  const lean = new THREE.Group();
+  lean.add(
+    finishMerged(stoneParts, stoneMaterial, 'pagoda platform'),
+    finishMerged(brickParts, brickMaterial, 'pagoda body'),
+    finishMerged(eaveParts, eaveMaterial, 'pagoda eaves'),
+    finishMerged(trimParts, trimMaterial, 'pagoda trims'),
+    finishMerged(windowParts, windowMaterial, 'pagoda windows'),
+  );
+  lean.rotation.z = 0.05;
+  group.add(lean);
+
+  return { group };
+}
+
+function buildZifengTower(): { group: THREE.Group } {
+  const group = new THREE.Group();
+  const glassMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: makeGlassTexture(),
+    roughness: 0.22,
+    metalness: 0.55,
+  });
+  const trimMaterial = new THREE.MeshStandardMaterial({
+    color: 0xd4dde2,
+    roughness: 0.35,
+    metalness: 0.55,
+  });
+  const podiumMaterial = new THREE.MeshStandardMaterial({
+    color: 0x9aa3a6,
+    roughness: 0.6,
+    metalness: 0.25,
+  });
+
+  const glassParts: THREE.BufferGeometry[] = [];
+  const addSection = (
+    centerY: number,
+    height: number,
+    bottomRadius: number,
+    topRadius: number,
+  ): void => {
+    const geometry = new THREE.CylinderGeometry(topRadius, bottomRadius, height, 3);
+    geometry.translate(0, centerY, 0);
+    glassParts.push(geometry);
+  };
+  addSection(36.5, 55, 13.5, 10);
+  addSection(81.5, 35, 10, 8);
+  addSection(108, 18, 8, 6.5);
+  const antenna = new THREE.CylinderGeometry(0.4, 1.4, 14, 6);
+  antenna.translate(0, 124, 0);
+  glassParts.push(antenna);
+  group.add(finishMerged(glassParts, glassMaterial, 'Zifeng tower'));
+
+  // 三段收分的退台做成浅灰挑檐，避免塔身看起来像一根光滑的针。
+  const trimParts: THREE.BufferGeometry[] = [];
+  const ledgeLow = new THREE.CylinderGeometry(11.1, 11.1, 2.4, 3);
+  ledgeLow.translate(0, 64, 0);
+  const ledgeHigh = new THREE.CylinderGeometry(9.1, 9.1, 2, 3);
+  ledgeHigh.translate(0, 99, 0);
+  const crown = new THREE.CylinderGeometry(6.8, 6.5, 3.2, 3);
+  crown.translate(0, 118.6, 0);
+  const crownRing = new THREE.CylinderGeometry(7.1, 7.1, 0.6, 3);
+  crownRing.translate(0, 120.4, 0);
+  trimParts.push(ledgeLow, ledgeHigh, crown, crownRing);
+  for (const z of [-16.4, 16.4]) {
+    const canopy = new THREE.BoxGeometry(16, 0.7, 4.2);
+    canopy.translate(0, 7.2, z);
+    trimParts.push(canopy);
+    for (const x of [-6.2, -2.2, 2.2, 6.2]) {
+      const column = new THREE.BoxGeometry(0.45, 7.2, 0.45);
+      column.translate(x, 3.6, z);
+      trimParts.push(column);
+    }
+  }
+  group.add(finishMerged(trimParts, trimMaterial, 'Zifeng trims'));
+
+  const podiumParts: THREE.BufferGeometry[] = [];
+  const podium = new THREE.BoxGeometry(36, 9, 30);
+  podium.translate(0, 4.5, 0);
+  const podiumBandLow = new THREE.BoxGeometry(36.6, 0.7, 30.6);
+  podiumBandLow.translate(0, 3, 0);
+  const podiumBandHigh = new THREE.BoxGeometry(36.6, 0.7, 30.6);
+  podiumBandHigh.translate(0, 8.4, 0);
+  podiumParts.push(podium, podiumBandLow, podiumBandHigh);
+  group.add(finishMerged(podiumParts, podiumMaterial, 'Zifeng podium'));
+
+  return { group };
+}
+
+function buildMountTai(): { group: THREE.Group } {
+  const group = new THREE.Group();
+  const mountainTexture = makeMountainTexture();
+  const greenMaterial = new THREE.MeshStandardMaterial({
+    color: 0x5d7355,
+    map: mountainTexture,
+    roughness: 1,
+  });
+  const darkGreenMaterial = new THREE.MeshStandardMaterial({
+    color: 0x495d49,
+    map: mountainTexture,
+    roughness: 1,
+  });
+  const rockMaterial = new THREE.MeshStandardMaterial({
+    color: 0x7c8176,
+    map: mountainTexture,
+    roughness: 1,
+  });
+
+  const addPeak = (
+    parts: THREE.BufferGeometry[],
+    x: number,
+    z: number,
+    radius: number,
+    height: number,
+    twist: number,
+  ): void => {
+    const geometry = new THREE.ConeGeometry(radius, height, 9, 1);
+    geometry.rotateY(twist);
+    geometry.translate(x, height * 0.5 - 0.2, z);
+    parts.push(geometry);
+  };
+  const nearParts: THREE.BufferGeometry[] = [];
+  const farParts: THREE.BufferGeometry[] = [];
+  addPeak(nearParts, 300, 80, 220, 100, 1.1);
+  addPeak(farParts, 200, -230, 250, 120, 0.7);
+  addPeak(farParts, 430, -70, 190, 88, 2.0);
+  addPeak(farParts, 90, -330, 210, 70, 2.6);
+  // 主峰拆成绿色山体和岩石峰顶，两段锥体半径对齐，避免峰顶出现接缝。
+  const mainBody = new THREE.CylinderGeometry(95, 340, 130, 9, 1, true);
+  mainBody.rotateY(0.3);
+  mainBody.translate(0, 64.8, 0);
+  nearParts.push(mainBody);
+  group.add(finishMerged(nearParts, greenMaterial, 'Mount Tai'));
+  group.add(finishMerged(farParts, darkGreenMaterial, 'Mount Tai far ridge'));
+
+  const rockParts: THREE.BufferGeometry[] = [];
+  const summit = new THREE.ConeGeometry(95, 48, 9, 1, true);
+  summit.rotateY(0.3);
+  summit.translate(0, 153.9, 0);
+  rockParts.push(summit);
+  const outcrops: Array<[number, number, number, number, number]> = [
+    [40, 20, 17, 15, 1.2],
+    [-28, 34, 20, 19, 2.4],
+    [4, 50, 13, 13, 3.1],
+  ];
+  for (const [x, z, radius, height, twist] of outcrops) {
+    const rock = new THREE.ConeGeometry(radius, height, 7, 1, true);
+    rock.rotateY(twist);
+    rock.translate(x, 148 + height * 0.5, z);
+    rockParts.push(rock);
+  }
+  group.add(finishMerged(rockParts, rockMaterial, 'Mount Tai summit'));
+
+  return { group };
+}
+
+function buildTianjinEye(): { group: THREE.Group; spin: THREE.Object3D } {
+  const group = new THREE.Group();
+  const steelMaterial = new THREE.MeshStandardMaterial({
+    color: 0xd8dee2,
+    roughness: 0.36,
+    metalness: 0.55,
+  });
+  const cabinMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: makeCabinTexture(),
+    roughness: 0.45,
+    metalness: 0.15,
+  });
+  const supportMaterial = new THREE.MeshStandardMaterial({
+    color: 0xa9b0b3,
+    roughness: 0.7,
+    metalness: 0.2,
+  });
+  // 天津之眼架在永乐桥上，桥面同时作为登轮平台。
+  const bridgeParts: THREE.BufferGeometry[] = [];
+  const deck = new THREE.BoxGeometry(96, 1.4, 16);
+  deck.translate(0, 0.7, 0);
+  bridgeParts.push(deck);
+  for (const z of [-7.7, 7.7]) {
+    const rail = new THREE.BoxGeometry(96, 0.18, 0.18);
+    rail.translate(0, 2.5, z);
+    bridgeParts.push(rail);
+    for (let i = -8; i <= 8; i += 1) {
+      const post = new THREE.BoxGeometry(0.2, 1.8, 0.2);
+      post.translate(i * 5.6, 1.6, z);
+      bridgeParts.push(post);
+    }
+  }
+  const depot = new THREE.BoxGeometry(20, 5, 5.5);
+  depot.translate(0, 3.9, -6);
+  bridgeParts.push(depot);
+  const depotRoof = new THREE.BoxGeometry(21, 0.7, 6.4);
+  depotRoof.translate(0, 6.7, -6);
+  bridgeParts.push(depotRoof);
+
+  const wheel = new THREE.Group();
+  wheel.position.y = 42;
+  const wheelParts: THREE.BufferGeometry[] = [];
+  for (const z of [-0.68, 0.68]) {
+    wheelParts.push(new THREE.TorusGeometry(24, 0.3, 6, 64).translate(0, 0, z));
+  }
+  wheelParts.push(new THREE.TorusGeometry(24, 0.16, 5, 64));
+  wheelParts.push(new THREE.TorusGeometry(18.5, 0.18, 5, 48));
+  wheelParts.push(new THREE.TorusGeometry(13, 0.2, 5, 40));
+  const hub = new THREE.CylinderGeometry(2.2, 2.2, 4.2, 14);
+  hub.rotateX(Math.PI / 2);
+  wheelParts.push(hub);
+  for (const z of [-2.1, 2.1]) {
+    const flange = new THREE.CylinderGeometry(3, 3, 0.4, 14);
+    flange.rotateX(Math.PI / 2);
+    flange.translate(0, 0, z);
+    wheelParts.push(flange);
+  }
+  const cabinCount = 16;
+  for (let i = 0; i < cabinCount; i += 1) {
+    const angle = (i / cabinCount) * Math.PI * 2;
+    const x = Math.cos(angle) * 24;
+    const y = Math.sin(angle) * 24;
+    addBarBetween(
+      wheelParts,
+      0.11,
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(x, y, 0),
+      5,
+    );
+    addBarBetween(
+      wheelParts,
+      0.1,
+      new THREE.Vector3(x, y, -0.68),
+      new THREE.Vector3(x, y, 0.68),
+      4,
+    );
+    addBarBetween(
+      wheelParts,
+      0.12,
+      new THREE.Vector3(x, y, 0),
+      new THREE.Vector3(x, y - 1.7, 0),
+      4,
+    );
+  }
+  wheel.add(finishMerged(wheelParts, steelMaterial, 'ferris wheel'));
+
+  const cabinParts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < cabinCount; i += 1) {
+    const angle = (i / cabinCount) * Math.PI * 2;
+    const cabin = new THREE.BoxGeometry(2.8, 3.0, 2.2);
+    cabin.translate(
+      Math.cos(angle) * 24,
+      Math.sin(angle) * 24 - 3.35,
+      0,
+    );
+    cabinParts.push(cabin);
+  }
+  wheel.add(finishMerged(cabinParts, cabinMaterial, 'ferris cabins'));
+  group.add(wheel);
+
+  const supportParts = bridgeParts;
+  for (const z of [-2.2, 2.2]) {
+    addBarBetween(
+      supportParts,
+      0.95,
+      new THREE.Vector3(-19, 1.4, z),
+      new THREE.Vector3(0, 42, 0),
+      8,
+    );
+    addBarBetween(
+      supportParts,
+      0.95,
+      new THREE.Vector3(19, 1.4, z),
+      new THREE.Vector3(0, 42, 0),
+      8,
+    );
+  }
+  addBarBetween(
+    supportParts,
+    0.7,
+    new THREE.Vector3(-19, 1.4, -2.2),
+    new THREE.Vector3(19, 1.4, 2.2),
+    6,
+  );
+  addBarBetween(
+    supportParts,
+    0.7,
+    new THREE.Vector3(-19, 1.4, 2.2),
+    new THREE.Vector3(19, 1.4, -2.2),
+    6,
+  );
+  addBarBetween(
+    supportParts,
+    0.55,
+    new THREE.Vector3(-9.5, 21.7, -2.2),
+    new THREE.Vector3(9.5, 21.7, 2.2),
+    5,
+  );
+  addBarBetween(
+    supportParts,
+    0.55,
+    new THREE.Vector3(-9.5, 21.7, 2.2),
+    new THREE.Vector3(9.5, 21.7, -2.2),
+    5,
+  );
+  const machinery = new THREE.BoxGeometry(24, 2, 10);
+  machinery.translate(0, 2.4, 0);
+  supportParts.push(machinery);
+  group.add(finishMerged(supportParts, supportMaterial, 'ferris bridge'));
+
+  return { group, spin: wheel };
+}
+
+function buildBeijingStationTowers(): { group: THREE.Group } {
+  const group = new THREE.Group();
+  const wallMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: makeStoneTexture(),
+    roughness: 0.85,
+  });
+  const roofMaterial = new THREE.MeshStandardMaterial({
+    color: 0x53645a,
+    roughness: 0.75,
+    metalness: 0.1,
+  });
+  const trimMaterial = new THREE.MeshStandardMaterial({
+    color: 0xece2ce,
+    roughness: 0.75,
+  });
+  const windowMaterial = new THREE.MeshStandardMaterial({
+    color: 0x2f3a3d,
+    roughness: 0.55,
+    metalness: 0.2,
+  });
+  const plazaMaterial = new THREE.MeshStandardMaterial({
+    color: 0xb4b1a6,
+    roughness: 0.95,
+  });
+  const clockMaterial = new THREE.MeshBasicMaterial({
+    map: makeClockTexture(),
+    alphaTest: 0.5,
+  });
+  const signMaterial = new THREE.MeshBasicMaterial({
+    map: makeStationNameTexture('北京站'),
+  });
+
+  const wallParts: THREE.BufferGeometry[] = [];
+  const hall = new THREE.BoxGeometry(30, 17, 20);
+  hall.translate(0, 8.5, 0);
+  wallParts.push(hall);
+  for (const x of [-20, 20]) {
+    const tower = new THREE.BoxGeometry(12, 35, 12);
+    tower.translate(x, 17.5, 0);
+    wallParts.push(tower);
+  }
+  for (const x of [-37.5, 37.5]) {
+    const wing = new THREE.BoxGeometry(20, 11, 16);
+    wing.translate(x, 5.5, 0);
+    wallParts.push(wing);
+  }
+  group.add(finishMerged(wallParts, wallMaterial, 'Beijing station walls'));
+
+  const roofParts: THREE.BufferGeometry[] = [];
+  const addHipRoof = (
+    x: number,
+    baseY: number,
+    halfX: number,
+    halfZ: number,
+    height: number,
+  ): void => {
+    const roof = new THREE.ConeGeometry(1, 1, 4);
+    roof.rotateY(Math.PI / 4);
+    roof.scale(halfX / Math.SQRT1_2, height, halfZ / Math.SQRT1_2);
+    roof.translate(x, baseY + height * 0.5, 0);
+    roofParts.push(roof);
+  };
+  addHipRoof(0, 17, 15.4, 11, 4.6);
+  addHipRoof(-20, 35, 7.6, 7.6, 4.6);
+  addHipRoof(20, 35, 7.6, 7.6, 4.6);
+  addHipRoof(-37.5, 11, 11.5, 9.5, 3.6);
+  addHipRoof(37.5, 11, 11.5, 9.5, 3.6);
+  const addCornice = (x: number, y: number, width: number, depth: number): void => {
+    const band = new THREE.BoxGeometry(width, 0.9, depth);
+    band.translate(x, y, 0);
+    roofParts.push(band);
+  };
+  addCornice(0, 16.4, 30.8, 20.8);
+  addCornice(-20, 32.4, 12.8, 12.8);
+  addCornice(20, 32.4, 12.8, 12.8);
+  addCornice(-37.5, 10.4, 20.8, 16.8);
+  addCornice(37.5, 10.4, 20.8, 16.8);
+  const hallRidge = new THREE.BoxGeometry(21, 0.55, 0.85);
+  hallRidge.translate(0, 21.4, 0);
+  roofParts.push(hallRidge);
+  for (const x of [-37.5, 37.5]) {
+    const wingRidge = new THREE.BoxGeometry(12, 0.45, 0.7);
+    wingRidge.translate(x, 14.4, 0);
+    roofParts.push(wingRidge);
+  }
+  group.add(finishMerged(roofParts, roofMaterial, 'Beijing station roofs'));
+
+  const windowParts: THREE.BufferGeometry[] = [];
+  const addWindow = (
+    x: number,
+    y: number,
+    z: number,
+    width: number,
+    height: number,
+    alongX: boolean,
+  ): void => {
+    const geometry = alongX
+      ? new THREE.BoxGeometry(0.32, height, width)
+      : new THREE.BoxGeometry(width, height, 0.32);
+    geometry.translate(x, y, z);
+    windowParts.push(geometry);
+  };
+  for (const towerX of [-20, 20]) {
+    for (const z of [-6.05, 6.05]) {
+      for (const x of [towerX - 2.6, towerX + 2.6]) {
+        for (const y of [7.5, 13.5, 19.5]) {
+          addWindow(x, y, z, 1.5, 2.2, false);
+        }
+      }
+    }
+    for (const x of [towerX - 6.05, towerX + 6.05]) {
+      for (const z of [-2.6, 2.6]) {
+        for (const y of [7.5, 13.5, 19.5]) {
+          addWindow(x, y, z, 1.5, 2.2, true);
+        }
+      }
+    }
+  }
+  for (const z of [-10.05, 10.05]) {
+    for (const x of [-11, -7.5, 7.5, 11]) {
+      addWindow(x, 6.6, z, 2.2, 2.6, false);
+    }
+    for (const x of [-11, -5.5, 0, 5.5, 11]) {
+      addWindow(x, 11.8, z, 2.2, 2.4, false);
+    }
+  }
+  for (const wingX of [-37.5, 37.5]) {
+    for (const z of [-8.05, 8.05]) {
+      for (const x of [wingX - 5, wingX, wingX + 5]) {
+        addWindow(x, 5.2, z, 2, 2.2, false);
+      }
+    }
+  }
+  const entrance = new THREE.BoxGeometry(10.5, 9, 0.8);
+  entrance.translate(0, 4.5, 10.1);
+  windowParts.push(entrance);
+  group.add(finishMerged(windowParts, windowMaterial, 'Beijing station windows'));
+
+  const trimParts: THREE.BufferGeometry[] = [];
+  for (const z of [-12, 12]) {
+    const canopy = new THREE.BoxGeometry(15, 0.8, 4);
+    canopy.translate(0, 9.5, z);
+    trimParts.push(canopy);
+    for (const x of [-6.2, -2.2, 2.2, 6.2]) {
+      const column = new THREE.BoxGeometry(0.55, 9.5, 0.55);
+      column.translate(x, 4.75, z);
+      trimParts.push(column);
+    }
+  }
+  for (const x of [-20, 20]) {
+    for (const z of [-6.1, 6.1]) {
+      const ring = new THREE.TorusGeometry(3.05, 0.16, 4, 24);
+      ring.translate(x, 26.5, z);
+      trimParts.push(ring);
+    }
+    const rod = new THREE.CylinderGeometry(0.1, 0.1, 1.8, 6);
+    rod.translate(x, 40.2, 0);
+    const ball = new THREE.SphereGeometry(0.5, 8, 6);
+    ball.translate(x, 41.2, 0);
+    trimParts.push(rod, ball);
+  }
+  group.add(finishMerged(trimParts, trimMaterial, 'Beijing station trims'));
+
+  const plazaParts: THREE.BufferGeometry[] = [];
+  const plaza = new THREE.BoxGeometry(100, 0.6, 46);
+  plaza.translate(0, 0.3, 0);
+  const step = new THREE.BoxGeometry(52, 0.3, 1.6);
+  step.translate(0, 0.15, 23.4);
+  plazaParts.push(plaza, step);
+  group.add(finishMerged(plazaParts, plazaMaterial, 'Beijing station plaza'));
+
+  const clockParts: THREE.BufferGeometry[] = [];
+  for (const x of [-20, 20]) {
+    const front = new THREE.PlaneGeometry(6.8, 6.8);
+    front.translate(x, 26.5, 6.08);
+    const back = new THREE.PlaneGeometry(6.8, 6.8);
+    back.rotateY(Math.PI);
+    back.translate(x, 26.5, -6.08);
+    clockParts.push(front, back);
+  }
+  group.add(finishMerged(clockParts, clockMaterial, 'Beijing station clocks'));
+
+  const signParts: THREE.BufferGeometry[] = [];
+  const frontSign = new THREE.PlaneGeometry(13, 2.6);
+  frontSign.translate(0, 14.5, 10.11);
+  const backSign = new THREE.PlaneGeometry(13, 2.6);
+  backSign.rotateY(Math.PI);
+  backSign.translate(0, 14.5, -10.11);
+  signParts.push(frontSign, backSign);
+  group.add(finishMerged(signParts, signMaterial, 'Beijing station sign'));
+
+  return { group };
+}
+
+function makeClockTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  context.clearRect(0, 0, 128, 128);
+  context.beginPath();
+  context.arc(64, 64, 58, 0, Math.PI * 2);
+  context.fillStyle = '#f6f1e4';
+  context.fill();
+  context.lineWidth = 7;
+  context.strokeStyle = '#2c2f2c';
+  context.stroke();
+
+  context.lineWidth = 4;
+  for (let i = 0; i < 12; i += 1) {
+    const angle = (i / 12) * Math.PI * 2;
+    const inner = i % 3 === 0 ? 44 : 50;
+    context.beginPath();
+    context.moveTo(64 + Math.sin(angle) * inner, 64 - Math.cos(angle) * inner);
+    context.lineTo(64 + Math.sin(angle) * 54, 64 - Math.cos(angle) * 54);
+    context.stroke();
+  }
+
+  context.lineCap = 'round';
+  context.lineWidth = 6;
+  context.beginPath();
+  context.moveTo(64, 64);
+  context.lineTo(
+    64 + Math.sin(-Math.PI / 3) * 23,
+    64 - Math.cos(-Math.PI / 3) * 23,
+  );
+  context.stroke();
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(64, 64);
+  context.lineTo(
+    64 + Math.sin(Math.PI / 3) * 34,
+    64 - Math.cos(Math.PI / 3) * 34,
+  );
+  context.stroke();
+  context.beginPath();
+  context.arc(64, 64, 5, 0, Math.PI * 2);
+  context.fillStyle = '#2c2f2c';
+  context.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function makePearlTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  const gradient = context.createLinearGradient(0, 0, 0, 128);
+  gradient.addColorStop(0, '#d0608c');
+  gradient.addColorStop(1, '#9c3560');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 256, 128);
+
+  for (let row = 0; row < 8; row += 1) {
+    const y = 10 + row * 14;
+    for (let column = 0; column < 32; column += 1) {
+      const x = 4 + column * 8 + (row % 2) * 4;
+      context.beginPath();
+      context.arc(x, y, 1.7, 0, Math.PI * 2);
+      context.fillStyle =
+        row % 3 === 0 ? 'rgba(255,238,246,0.9)' : 'rgba(255,206,228,0.55)';
+      context.fill();
+    }
+  }
+
+  context.strokeStyle = 'rgba(90,20,50,0.35)';
+  context.lineWidth = 2;
+  for (let y = 16; y < 128; y += 28) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(256, y);
+    context.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function makeBrickTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  context.fillStyle = '#bda283';
+  context.fillRect(0, 0, 128, 128);
+  context.strokeStyle = 'rgba(78,56,38,0.4)';
+  context.lineWidth = 1.4;
+  for (let row = 0; row < 8; row += 1) {
+    const y = row * 16;
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(128, y);
+    context.stroke();
+    for (let column = 0; column < 4; column += 1) {
+      const x = column * 32 + (row % 2) * 16;
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x, y + 16);
+      context.stroke();
+    }
+  }
+  for (let i = 0; i < 260; i += 1) {
+    context.fillStyle =
+      Math.random() < 0.5 ? 'rgba(90,64,42,0.12)' : 'rgba(235,214,186,0.12)';
+    context.fillRect(Math.random() * 128, Math.random() * 128, 2.5, 2.5);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 2);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeGlassTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  const gradient = context.createLinearGradient(0, 0, 0, 256);
+  gradient.addColorStop(0, '#c5dbe7');
+  gradient.addColorStop(0.55, '#93b2c4');
+  gradient.addColorStop(1, '#7696aa');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 128, 256);
+
+  for (let y = 4; y < 256; y += 8) {
+    context.fillStyle =
+      y % 32 === 4 ? 'rgba(42,66,82,0.34)' : 'rgba(52,78,94,0.18)';
+    context.fillRect(0, y, 128, y % 32 === 4 ? 1.6 : 1);
+  }
+  for (let x = 0; x < 128; x += 16) {
+    context.fillStyle = 'rgba(210,230,240,0.28)';
+    context.fillRect(x, 0, 1.2, 256);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2, 3);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+function makeMountainTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  context.fillStyle = '#dfe3d6';
+  context.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 220; i += 1) {
+    const shade = Math.random();
+    context.fillStyle =
+      shade < 0.4
+        ? 'rgba(148,162,136,0.18)'
+        : shade < 0.75
+          ? 'rgba(190,200,176,0.16)'
+          : 'rgba(112,128,104,0.14)';
+    const width = 8 + Math.random() * 26;
+    const height = 4 + Math.random() * 14;
+    context.beginPath();
+    context.ellipse(
+      Math.random() * 128,
+      Math.random() * 128,
+      width,
+      height,
+      Math.random() * Math.PI,
+      0,
+      Math.PI * 2,
+    );
+    context.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(32, 5);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeCabinTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  context.fillStyle = '#eef2f4';
+  context.fillRect(0, 0, 128, 128);
+  context.fillStyle = '#315a72';
+  context.fillRect(6, 36, 116, 46);
+  context.fillStyle = 'rgba(210,232,244,0.55)';
+  for (let x = 14; x < 122; x += 18) {
+    context.fillRect(x, 42, 8, 34);
+  }
+  context.fillStyle = '#9aa6ac';
+  context.fillRect(0, 98, 128, 12);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeStoneTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  context.fillStyle = '#dcc9a8';
+  context.fillRect(0, 0, 128, 128);
+  context.strokeStyle = 'rgba(120,100,75,0.18)';
+  context.lineWidth = 1.2;
+  for (let y = 0; y < 128; y += 16) {
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(128, y);
+    context.stroke();
+    for (let x = 0; x < 128; x += 32) {
+      const seam = x + ((y / 16) % 2) * 16;
+      context.beginPath();
+      context.moveTo(seam, y);
+      context.lineTo(seam, y + 16);
+      context.stroke();
+    }
+  }
+  for (let i = 0; i < 160; i += 1) {
+    context.fillStyle =
+      Math.random() < 0.5 ? 'rgba(110,92,70,0.08)' : 'rgba(250,240,220,0.1)';
+    context.fillRect(Math.random() * 128, Math.random() * 128, 3, 2);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3, 2);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeStationNameTexture(name: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 192;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('2D canvas is unavailable');
+  }
+
+  context.fillStyle = '#0c3b28';
+  context.fillRect(0, 0, 1024, 192);
+  context.fillStyle = '#ffd24a';
+  context.fillRect(0, 0, 1024, 10);
+  context.fillRect(0, 182, 1024, 10);
+  context.font = '700 118px "Microsoft YaHei", "Noto Sans SC", sans-serif';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(name, 512, 100);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
 }
 
 function mulberry32(seed: number): () => number {

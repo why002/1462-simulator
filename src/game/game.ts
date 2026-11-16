@@ -1180,6 +1180,7 @@ export function createGame(
     update(dt: number): void {
       step(dt);
       world.updateGuideBand(v);
+      world.updateLandmarks(dt);
       passengerFx.update(dt, s, v);
       effects.update(dt, { s, v, pressing, derailing, tilt });
       audio.update(dt, v, started && !finished && !derailing, pressing);
