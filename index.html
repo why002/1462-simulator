@@ -94,6 +94,9 @@
         <footer class="bottombar">
           <div class="dash">
             <div class="speed">
+              <div id="compat-badge" class="compat-badge hidden" title="浏览器不支持 WebGL2，已自动回退到 WebGL1">
+                兼容模式
+              </div>
               <canvas id="speedo" class="speedo" width="136" height="136"></canvas>
               <div class="speed-readout">
                 <div class="speed-value">
@@ -213,6 +216,18 @@
           </div>
         </div>
 
+        <div id="boot-error" class="boot-error hidden" role="alert">
+          <div class="boot-error-card">
+            <div class="boot-error-kicker">京沪线 · 1462</div>
+            <h2 id="boot-error-title">无法显示 3D 画面</h2>
+            <p id="boot-error-message">
+              当前浏览器没有可用的 WebGL。请更新浏览器，或改用系统自带浏览器 / Chrome / Safari 打开。
+            </p>
+            <p id="boot-error-detail" class="boot-error-detail"></p>
+            <button id="boot-error-reload" type="button">重新加载</button>
+          </div>
+        </div>
+
         <div
           id="share-overlay"
           class="share-overlay hidden"
@@ -245,6 +260,22 @@
         </div>
       </div>
     </div>
+    <script nomodule>
+      (function () {
+        var overlay = document.getElementById('boot-error');
+        if (!overlay) return;
+        var title = document.getElementById('boot-error-title');
+        var message = document.getElementById('boot-error-message');
+        var detail = document.getElementById('boot-error-detail');
+        if (title) title.textContent = '浏览器版本过旧';
+        if (message) {
+          message.textContent =
+            '当前浏览器无法运行游戏所需的脚本。请升级浏览器，或改用系统浏览器 / Chrome / Safari 的最新版本打开。';
+        }
+        if (detail) detail.textContent = '';
+        overlay.classList.remove('hidden');
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

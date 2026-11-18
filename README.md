@@ -45,6 +45,14 @@ npm run preview   # 预览 dist/ http://localhost:4173/
 
 打开浏览器开发者工具的 Console，页面加载后使用全局 `__game` 对象。以下命令只用于调试，不影响正常玩法。
 
+### 强制 WebGL1
+
+在地址后加 `?webgl1=1`（例如 `http://localhost:5173/?webgl1=1`），会让渲染器跳过 WebGL2、强制回退到 WebGL1，用于模拟旧手机。该开关只在 `npm run dev` 开发模式下生效，`npm run build` 的构建产物会移除它。确认方式：
+
+```js
+__renderer.getContext().constructor.name; // "WebGLRenderingContext"
+```
+
 ### 按已跑里程跳转
 
 最常用的是 `__game.teleportKm(km)`：把列车直接放到“已跑 km”的位置。

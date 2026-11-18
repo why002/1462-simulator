@@ -96,6 +96,15 @@ npm run preview   # http://localhost:4173/
 - 固定晴朗午后光照。沿线地标集中在 `world.ts` 的 `LANDMARKS` 表：东方明珠（上海）、虎丘塔（苏州）、紫峰大厦（南京）、泰山山脊（泰山—济南间）、天津之眼（天津）、北京站双钟楼（北京）。每个地标按 km + 侧向偏移放置，自动做轨道净空检查，并用 `reserve` 半径清除周边程序化房屋/树木/农田；新增地标时沿用该表，不要直接往场景里塞固定坐标。天津之眼轮盘由 `world.updateLandmarks(dt)` 缓慢旋转，`World` 接口同时包含 `updateGuideBand` 与 `updateLandmarks`。地标全部使用程序化基础几何与 Canvas 贴图，不引入外部素材；draw calls 仍须 <180。
 - 不新增外部图片/字体/服务端；贴图用 Canvas，音效用 Web Audio 合成。唯一的第三方脚本是 B 站官方 Toy SDK（`toy-sdk.js`），用于排行榜与分享。
 
+### 渲染兼容性
+
+- `three` 固定为 `0.162.0`（`package.json` 精确版本）：这是最后一个支持 WebGL1 的版本。r163 起 `WebGLRenderer` 只接受 WebGL2，旧 iPhone/iPad 和部分 App 内置浏览器会直接黑屏，只剩静态 HUD 文字。不要随意升级；必须升级时先确认目标设备都有 WebGL2，并保留启动失败兜底。
+- `src/main.ts` 的 `createRenderer()` 先用 `antialias + high-performance`，失败后换全新 canvas 以 `antialias: false + default` 重试；r162 内部会再回退到 WebGL1。
+- 启动失败、WebGL 上下文丢失、动画循环抛错都会显示 `#boot-error` 弹层（`showBootError`），不得让异常静默中断启动。弹层提示要能区分「没有 WebGL」（建议换系统浏览器）与「初始化出错」（建议刷新），并带「重新加载」按钮。
+- 视口尺寸统一走 `viewportSize()`，`resize`、`orientationchange`、`visualViewport.resize` 都会重新设置相机与渲染器；不要把 `innerWidth/innerHeight` 直接当作一定大于 0。
+- WebGL1 渲染时在速度表正上方显示 `#compat-badge`「兼容模式」，由 `renderer.capabilities.isWebGL2` 控制；WebGL2 下必须隐藏。徽标只要半透明白字、无底纹无边框，用绝对定位贴在 `.speed` 面板上方，不要挤占速度表布局。
+- 本地验证 WebGL1 用 `?webgl1=1`（`src/main.ts` 的 `forceWebGL1` 会给渲染 canvas 屏蔽 `webgl2`），控制台确认 `__renderer.getContext().constructor.name === 'WebGLRenderingContext'`。该开关由 `import.meta.env.DEV` 限定，只在 `npm run dev` 生效，构建产物会移除，不要用于线上。浏览器 `--disable-webgl2` 受已有实例/配置文件影响，不如该参数可靠。
+
 ### B 站 Toy 接入
 
 - `index.html` 在 `<head>` 异步引入官方 `//s1.hdslb.com/bfs/seed/toy/app/sdk/toy-sdk.js`；所有 SDK 调用走 `src/game/toy.ts`，不要在别处直接读 `window.toy`。`toy/` 文档目录被 gitignore，不是构建依赖。
